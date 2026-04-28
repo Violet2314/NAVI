@@ -209,6 +209,8 @@ body {
 .navi-sidebar.collapsed .navi-logo {
   justify-content: center;
   padding-bottom: 8px;
+  padding: 8px 0 8px;
+  gap: 0;
 }
 .navi-sidebar.collapsed .sidebar-toggle {
   margin-left: 0;

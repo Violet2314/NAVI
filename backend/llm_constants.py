@@ -49,13 +49,19 @@ LLM_VISION_BATCH_MAX_TOKENS = 600
 # ═══════════════════════════════════════════════════════════════════════
 
 # 活动分类：基础 token（实际 = max(此值, 活动数 * 40)）
-CLASSIFIER_BASE_MAX_TOKENS = 200
+# 注意：思维链模型（如 MiniMax-M2.5）的 <think> 块会消耗大量 token，
+# 基础值需足够大以保证 JSON 答案有输出余量。
+# 20 条活动 JSON ≈ 1100 token，<think> ≈ 600-800 token，总计需 ~2000
+CLASSIFIER_BASE_MAX_TOKENS = 2048
 
 # 活动分类：每条活动的 token 预算乘数
 CLASSIFIER_PER_ACTIVITY_TOKENS = 40
 
 # 截图理解（vision_chat 调用）
 CLASSIFIER_SCREENSHOT_MAX_TOKENS = 500
+
+# gap_detector — 日报追问判断（单次调用，需为思维链模型留余量）
+GAP_DETECTOR_MAX_TOKENS = 512
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -85,7 +91,7 @@ REPORT_VISION_BATCH_SIZE = 5
 REPORT_MAX_DESC_LEN = 50
 
 # 日报输出 token 上限（含模型思考链，实际正文约 3000-5000 字）
-REPORT_MAX_TOKENS = 10000
+REPORT_MAX_TOKENS = 20000
 
 # 截图批量描述：基础 token（实际 = max(600, 截图数 * (MAX_DESC_LEN + 20))）
 REPORT_VISION_DESC_BASE_TOKENS = 600

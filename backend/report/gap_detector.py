@@ -15,6 +15,8 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+from llm_constants import GAP_DETECTOR_MAX_TOKENS
+
 logger = logging.getLogger("navi.report.gap")
 
 # 至少 ≥30 分钟的活动段才考虑追问（短的不值得问）
@@ -132,8 +134,7 @@ def detect_gap_via_llm(activities: List[Dict], date_str: str) -> Optional[InfoGa
         from llm_client import chat
         raw = chat(
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
-            # 用同一个文本模型，单次调用约 500 token，成本可忽略
+            max_tokens=GAP_DETECTOR_MAX_TOKENS,
         )
     except Exception as e:
         logger.warning(f"gap_detector: LLM 调用失败 {e}，降级为不追问")

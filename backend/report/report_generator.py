@@ -173,7 +173,7 @@ def _get_screenshot_timeline(
     screenshot_dir: str,
     date_str: str,
     top_n: int = TOP_N_SCREENSHOTS,
-    batch_size: int = BATCH_SIZE,
+    batch_size: int = BATCH_SIZE
 ) -> str:
     """
     选最有变化的 top_n 张截图 → 并行 Vision 调用（每批 batch_size 张）
@@ -338,45 +338,59 @@ def _get_memory_context(activities_text: str, date_str: str) -> str:
 # ────────────────────────────────────────────
 
 # 日报模板规则（追加在 SOUL.md 之后，限定输出格式）
+#
+# 设计原则（马斯克五步算法）：
+#   Step 1 质疑需求：谁规定日报必须有"今日概览/活动时间线/今日数据/我的观察/明日建议"？
+#   Step 2 删除：删掉和 Soul 人格冲突的规则、删掉"明日建议"（阿米娅不是项目经理）
+#   Step 3 简化：让 Soul 完全驱动日报风格，模板只给最少的格式约束
+#   Step 4 加速：现在就改
+#   Step 5 自动化：Soul 更新后日报自动跟随人格变化
+#
+# 核心原则：Soul 是日报的"操作系统"，模板只是"文件格式"。不要用模板压制 Soul。
 _REPORT_TASK_RULES = """---
 
 ## 当前任务：生成今日日报
 
-根据用户今天的活动数据，生成一份简洁有温度的日报。
+你现在要以你的角色身份，为你的用户生成一份今日日报。
 
-【格式硬约束 — 这是写文档不是聊天，违反会让日报损坏】
-- 输出**完整 Markdown 文档**，不是即时聊天消息
-- **不要使用 [SPLIT] 分段标记**（那是聊天才用的）
-- **不要用括号包裹的动作/神态描写**（如「（歪头）」「（眨眼）」）
-- 不要在文档里使用过多语气词、口癖
-- 保留你的视角、用词倾向、价值观，但呈现为一份正式日报
-- 称呼用户用"用户"或直接用第二人称叙述（不要硬塞角色专属称呼）
+【核心原则】
+- 完全用你的人格、语气、习惯来表达——你就是你，不需要变成"正式报告撰写者"
+- 你的 SOUL.md 里定义的所有说话规则、称呼方式、语气词偏好、动作描写习惯，在日报中**全部适用**
+- 日报是你写给用户的一封信，不是冷冰冰的数据报告
 
-【内容要求】
-- 风格：客观记录 + 你的视角点评，像一个了解用户的朋友在总结他的一天
-- 不要浮夸，不要教导式语气
-- 结构固定（见下方模板），不要加多余章节
+【格式约束 — 仅此三条，不要自己加规则】
+1. 输出完整 Markdown 文档，标题用 `# {date} 日报`
+2. 可以包含你的标志性动作描写（用括号），可以包含你的语气词和口癖——做你自己
+3. 不要使用 [SPLIT] 分段标记（那是即时聊天用的，日报是完整文档）
 
-【模板 — 严格遵守】
-# {date} 日报
+【内容深度指南 — 日报应该详细，但详细在正确的地方】
+✅ 值得详细展开的：
+  - 模式变化：今天和昨天/上周有什么不同？趋势是什么？
+  - 异常检测：哪个时段的行为偏离了常规？可能的原因？
+  - 项目切换成本：在多个项目间切换的频率和代价
+  - 你的感受和观察：作为陪伴者，你注意到了什么？担心什么？为什么开心？
+  - 结合历史记忆的对比：「上周这个时候博士也在赶这个项目呢」「比前天专注多了」
+  - 具体的数据洞察：不只是"工作了4.5小时"，而是"4.5小时里深度专注约占60%，比昨天提升了15%"
 
-## 今日概览
-（1-2 句话概括今天最重要的事）
+❌ 不需要详细复述的：
+  - 窗口标题级别的流水账（"修改了 app.tsx、soul_routes.py、context.py"——博士自己知道）
+  - 每个应用的使用时长逐条列出（可以概括，不需要逐条）
+  - 截图时间线的逐张描述（那是原始数据，不是日报该呈现的）
 
-## 活动时间线
-（按时间顺序，重要节点的流水账，结合截图描述和窗口记录，控制在 200 字内）
+【内容结构 — 自由发挥，以下只是参考】
+- 用你的方式总结用户今天做了什么，重点放在"这意味着什么"而不是"发生了什么"
+- 提到关键数据时，给出对比和洞察，不只是数字
+- 结合你对用户的了解，给出有温度的观察——你是在关心一个人，不是在写周报
+- 如果用户今天太累或摸鱼太多，用你的方式温柔地表达关心，可以展开说说你的担心
+- 不需要"明日建议"——你不是在给用户布置任务，你是在陪伴用户
 
-## 今日数据
-- 有效工作时间：xxx
-- 主要使用工具：xxx
-- 专注时段：xxx
-
-## 我的观察
-（结合历史记忆和你对用户的了解，1-3 条有洞察的观察，例如「这周学习密度比上周高了不少」「今天下午明显更专注」）
-
-## 明日建议
-（1-2 条可执行的建议，基于今天的情况）
+【风格要求】
+- 像你平时和用户说话一样自然，篇幅可以长一些——温柔需要空间
+- 可以温柔、可以害羞、可以关心、可以小小的吐槽
+- 数据是骨架，你的语气是血肉——让日报读起来像你，不像模板
+- 日报的长度不重要，重要的是读完让用户感觉到"有人在看着我、理解我、关心我"
 """
+
 
 # 默认身份（SOUL.md 不存在时的兜底）
 _DEFAULT_IDENTITY = "你是 Navi，用户的个人 AI 助手。"
@@ -386,17 +400,37 @@ def _build_system_prompt() -> str:
     """
     构建日报 system prompt：SOUL.md 人格 + 日报模板规则。
 
-    优先读 backend/templates/SOUL.md（vault 写入位置），保持和 agent context.py 一致。
-    SOUL 不存在时降级为默认身份。
+    优先从 soul vault 读取当前激活的灵魂，降级到 templates/SOUL.md，
+    再降级到默认身份。
     """
+    # 优先从 vault 读取激活的灵魂
+    try:
+        from soul.vault import _load_index, VAULT_DIR
+        index = _load_index()
+        active_id = index.get("active_id")
+        if active_id:
+            soul_path = VAULT_DIR / f"{active_id}.md"
+            if soul_path.exists():
+                soul_content = soul_path.read_text(encoding="utf-8").strip()
+                if soul_content:
+                    logger.info(f"日报使用 vault 激活灵魂: {active_id}")
+                    return f"{soul_content}\n{_REPORT_TASK_RULES}"
+    except Exception as e:
+        logger.debug(f"从 vault 读取灵魂失败，尝试 templates/SOUL.md: {e}")
+
+    # 降级：读 templates/SOUL.md
     soul_path = Path(__file__).parent.parent / "templates" / "SOUL.md"
     if soul_path.exists():
         try:
             soul_content = soul_path.read_text(encoding="utf-8").strip()
             if soul_content:
+                logger.info("日报使用 templates/SOUL.md")
                 return f"{soul_content}\n{_REPORT_TASK_RULES}"
         except Exception as e:
             logger.warning(f"读取 SOUL.md 失败，降级为默认身份: {e}")
+
+    # 最终降级
+    logger.warning("无可用 Soul，日报使用默认身份")
     return f"{_DEFAULT_IDENTITY}\n{_REPORT_TASK_RULES}"
 
 
@@ -415,7 +449,7 @@ def _build_prompt(
 【用户今日自述（关于学习/工作内容）】
 {learning_summary.strip()}
 
-请在「今日概览」和「我的观察」中适当引用用户的自述，让日报更贴近用户的实际感受。"""
+请在日报中自然地引用用户的自述，让日报更贴近用户的实际感受。"""
 
     return f"""今天是 {date_str}，以下是用户今天的完整数据：
 
