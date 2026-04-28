@@ -1,0 +1,107 @@
+# ===========================
+# Python / Backend
+# ===========================
+__pycache__/
+*.py[oc]
+*.pyd
+*.pyo
+*.pyw
+*.egg
+*.egg-info/
+dist/
+build/
+wheels/
+.eggs/
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+pip-log.txt
+pip-delete-this-directory.txt
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# ===========================
+# Node.js / Frontend
+# ===========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.local
+logs/
+*.log
+
+# ===========================
+# Vite / React Build Output
+# ===========================
+frontend/dist/
+frontend/dist-ssr/
+
+# ===========================
+# Tauri / Rust
+# ===========================
+frontend/src-tauri/target/
+Cargo.lock
+*.pdb
+
+# ===========================
+# OS Generated
+# ===========================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ===========================
+# IDE / Editor
+# ===========================
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*.bak
+
+# ===========================
+# 项目文档（不公开）
+# ===========================
+docs/
+*.docs
+
+# ===========================
+# 角色素材（不公开）
+# ===========================
+阿米娅/
+
+# ===========================
+# 用户本地配置（不公开）
+# ===========================
+backend/templates/SOUL.md
+backend/templates/USER.md
+
+# ===========================
+# 运行时数据
+# ===========================
+backend/sessions/
+backend/screenshot.png
+backend/temp_screenshot.png
+*.tmp
+*.temp
