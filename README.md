@@ -16,7 +16,6 @@
   <a href="#快速开始">快速开始</a> ·
   <a href="#核心能力">核心能力</a> ·
   <a href="#系统架构">系统架构</a> ·
-  <a href="./docs/">文档</a> ·
   <a href="https://github.com/Violet2314/NAVI/issues">报告问题</a> ·
 </p>
 
@@ -67,7 +66,7 @@
 <!-- 主特性 GIF / 截图占位（待补） -->
 <!-- ![feature](./docs/assets/feature.gif) -->
 <p align="center">
-  <img alt="主特性演示 — 待补" src="home.png" width="80%">
+  <img alt="主特性演示" src="img/screenshot-main-demo.png" width="80%">
 </p>
 
 ---
@@ -85,7 +84,6 @@
 - [角色系统](#角色系统)
 - [设计哲学](#设计哲学)
 - [致谢与灵感来源](#致谢与灵感来源)
-- [社区](#community)
 - [Star History](#star-history)
 - [许可证](#许可证)
 
@@ -115,7 +113,7 @@ Navi 把闭环合上了：
 
 <!-- 主界面截图：Live2D 在桌面角落，聊天面板打开 -->
 <p align="center">
-  <img alt="Navi 主界面 — 待补" src="home1.png" width="80%">
+  <img alt="Navi 主界面" src="img/screenshot-main-ui.png" width="80%">
 </p>
 
 ---
@@ -288,8 +286,8 @@ Navi 围绕 **六个动词**展开：**看见、记住、理解、不听话、�
 - 并且支持wx对话
 
 <p align="center">
-  <img alt="wx截图" src="home4.png" width="65%">
-  <img alt="wx截图" src="home3.png" width="20%">
+  <img alt="微信接入截图" src="img/screenshot-wechat-detail.png" width="65%">
+  <img alt="微信接入截图" src="img/screenshot-wechat.png" width="20%">
 </p>
 
 ### 主动 — 她先开口
@@ -318,7 +316,7 @@ Navi 围绕 **六个动词**展开：**看见、记住、理解、不听话、�
 
 <!-- Live2D 表情集锦 -->
 <p align="center">
-  <img alt="Live2D 角色表情 — 待补" src="home2.png" width="80%">
+  <img alt="Live2D 角色表情" src="img/screenshot-live2d-expressions.png" width="80%">
 </p>
 
 ---
@@ -501,6 +499,12 @@ Navi/
 │   │   └── utils/              # API 客户端
 │   └── src-tauri/              # Tauri（Rust）桌面壳
 ├── docs/                       # 设计文档、路线图、锐评
+├── img/                        # 截图与演示图片
+│   ├── screenshot-main-demo.png
+│   ├── screenshot-main-ui.png
+│   ├── screenshot-live2d-expressions.png
+│   ├── screenshot-wechat.png
+│   └── screenshot-wechat-detail.png
 └── icon.png                    # Navi 图标
 ```
 
@@ -570,9 +574,6 @@ Navi 的性格由 `SOUL.md` 驱动 — 一份结构化的角色设定文件。
 - **对话示例** — 6-8 段完整对话，覆盖关键场景
 
 **灵魂生成管线**把这个过程自动化：输入角色素材（设定文档 / 对话语料 / 参考图片），自动产出完整、一致的 `SOUL.md`。
-
-> [!NOTE]
-> 角色模板完全解耦 — 你可以从 Neuro-sama / 明日方舟 / 原神任意 IP 的素材生成属于你自己的 Navi 角色。版权在你自己，我们不托管任何角色素材。
 
 ---
 
