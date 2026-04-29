@@ -18,12 +18,10 @@
   <a href="#系统架构">系统架构</a> ·
   <a href="./docs/">文档</a> ·
   <a href="https://github.com/Violet2314/NAVI/issues">报告问题</a> ·
-  <a href="#community">社区</a>
 </p>
 
 <p align="center">
   <a href="README.md">简体中文</a> ·
-  <a href="docs/README.en.md">English</a>
 </p>
 
 <p align="center">
@@ -56,7 +54,7 @@
 <br/>
 
 > [!NOTE]
-> **Navi 不是效率工具，不是日记软件，不是 AI 助手。**
+> **Navi 是效率工具，也是日记软件，也是 AI 助手。**
 > 它是一个通过持续感知你的数字生活、积累对你的理解，最终以二次元角色形态陪伴你的个人 AI 系统。
 > 效率和日报是你喂养她的方式，陪伴是她存在的意义。
 
@@ -69,7 +67,7 @@
 <!-- 主特性 GIF / 截图占位（待补） -->
 <!-- ![feature](./docs/assets/feature.gif) -->
 <p align="center">
-  <img alt="主特性演示 — 待补" src="https://via.placeholder.com/960x540/1a1a2e/e0def4?text=Navi+Main+Demo+(WIP)" width="80%">
+  <img alt="主特性演示 — 待补" src="home.png" width="80%">
 </p>
 
 ---
@@ -117,7 +115,7 @@ Navi 把闭环合上了：
 
 <!-- 主界面截图：Live2D 在桌面角落，聊天面板打开 -->
 <p align="center">
-  <img alt="Navi 主界面 — 待补" src="https://via.placeholder.com/960x540/16213e/e0def4?text=Navi+Desktop+Screenshot+(WIP)" width="80%">
+  <img alt="Navi 主界面 — 待补" src="home1.png" width="80%">
 </p>
 
 ---
@@ -139,9 +137,7 @@ Navi 把闭环合上了：
 
 <br/>
 
-### 这不是壳 demo — 底座是什么
-
-市面上的 Live2D 陪伴 + AI 助手项目不少，区分一个项目是"演示视频好看"还是"能跑一年"的关键，是看它底下有没有**真正能承重的工程底座**。
+### 底座是什么
 
 Navi 的底座由四块构成：**nanobot（Agent 内核）** + **多层记忆系统** + **Hermes-Agent（生命周期与内部经济学）** + **采集系统（持续数据源）**。
 
@@ -274,11 +270,6 @@ Navi 围绕 **六个动词**展开：**看见、记住、理解、不听话、�
 - 连续多天的模式识别（"你最近三天都在 20:00 后才开始写代码"）
 - InsightsEngine 的使用统计**反哺**下一轮 system prompt，让高频 / 低失败率 skill 优先曝光
 
-<!-- 日报截图 -->
-<p align="center">
-  <img alt="日报示例 — 待补" src="https://via.placeholder.com/800x480/1a1a2e/e0def4?text=Daily+Report+(WIP)" width="70%">
-</p>
-
 ### 不听话 — 行为干预
 
 - **黑名单监控**：可配置的干扰应用列表
@@ -294,6 +285,12 @@ Navi 围绕 **六个动词**展开：**看见、记住、理解、不听话、�
 - **Skill 系统**：通过 `SKILL.md` 扩展能力，按使用频次与失败率动态排序
 - **多渠道**：本地 WebSocket、微信 ilink 接入
 - 她的回答基于她 **观察到** 的事实 — 不是通用 AI 的片汤话
+- 并且支持wx对话
+
+<p align="center">
+  <img alt="wx截图" src="home4.png" width="65%">
+  <img alt="wx截图" src="home3.png" width="20%">
+</p>
 
 ### 主动 — 她先开口
 
@@ -321,7 +318,7 @@ Navi 围绕 **六个动词**展开：**看见、记住、理解、不听话、�
 
 <!-- Live2D 表情集锦 -->
 <p align="center">
-  <img alt="Live2D 角色表情 — 待补" src="https://via.placeholder.com/960x360/16213e/e0def4?text=Live2D+Expressions+(WIP)" width="80%">
+  <img alt="Live2D 角色表情 — 待补" src="home2.png" width="80%">
 </p>
 
 ---
@@ -371,11 +368,6 @@ Navi 围绕 **六个动词**展开：**看见、记住、理解、不听话、�
           │  ─ skills/*.md      │
           └─────────────────────┘
 ```
-
-<!-- 架构图插画占位，替换为真实设计图后效果更好 -->
-<p align="center">
-  <img alt="架构图 — 待补" src="https://via.placeholder.com/1000x600/1a1a2e/e0def4?text=Architecture+Diagram+(WIP)" width="85%">
-</p>
 
 ---
 

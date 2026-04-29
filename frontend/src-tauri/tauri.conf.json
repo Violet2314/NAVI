@@ -54,13 +54,7 @@
   },
   "plugins": {
     "shell": {
-      "sidecar": true,
-      "scope": [
-        {
-          "name": "../../backend/dist/navi-backend",
-          "sidecar": true
-        }
-      ]
+      "open": true
     }
   }
 }
