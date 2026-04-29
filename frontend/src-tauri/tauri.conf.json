@@ -47,6 +47,20 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "externalBin": [
+      "../../backend/dist/navi-backend"
     ]
+  },
+  "plugins": {
+    "shell": {
+      "sidecar": true,
+      "scope": [
+        {
+          "name": "../../backend/dist/navi-backend",
+          "sidecar": true
+        }
+      ]
+    }
   }
 }

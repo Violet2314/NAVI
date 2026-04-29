@@ -19,6 +19,11 @@
     "core:tray:default",
     "core:tray:allow-set-icon",
     "core:tray:allow-set-tooltip",
-    "core:tray:allow-set-visible"
+    "core:tray:allow-set-visible",
+    "shell:default",
+    "shell:allow-execute",
+    "shell:allow-spawn",
+    "shell:allow-stdin-write",
+    "shell:allow-kill"
   ]
 }

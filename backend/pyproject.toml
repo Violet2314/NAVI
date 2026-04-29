@@ -33,3 +33,8 @@ dependencies = [
     "opencv-python-headless>=4.13.0.92",
     "onnxruntime>=1.24.4",
 ]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.0.0",
+]

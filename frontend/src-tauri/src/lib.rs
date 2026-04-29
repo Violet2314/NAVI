@@ -1,4 +1,11 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+use std::sync::Mutex;
+use tauri::Manager;
+use tauri::Emitter;
+
+/// 持有 sidecar 子进程句柄，确保退出时能被 kill
+struct BackendProcess(Mutex<Option<tauri_plugin_shell::process::CommandChild>>);
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -44,7 +51,6 @@ fn get_screen_size() -> (i32, i32) {
         extern "system" {
             fn GetSystemMetrics(n_index: i32) -> i32;
         }
-        // SM_CXSCREEN=0, SM_CYSCREEN=1
         unsafe {
             let w = GetSystemMetrics(0);
             let h = GetSystemMetrics(1);
@@ -57,25 +63,85 @@ fn get_screen_size() -> (i32, i32) {
     }
 }
 
+/// 启动 Python 后端 sidecar 进程
+fn spawn_backend(app: &tauri::AppHandle) -> Option<tauri_plugin_shell::process::CommandChild> {
+    use tauri_plugin_shell::ShellExt;
+
+    let shell = app.shell();
+
+    let sidecar_command = shell
+        .sidecar("navi-backend")
+        .expect("Failed to create sidecar command for navi-backend");
+
+    let (mut rx, child) = match sidecar_command.spawn() {
+        Ok((rx, child)) => {
+            println!("Navi backend started (PID: {})", child.pid());
+            (rx, child)
+        }
+        Err(e) => {
+            eprintln!("Navi backend failed to start: {}", e);
+            return None;
+        }
+    };
+
+    // 异步监听后端输出
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        use tauri_plugin_shell::process::CommandEvent;
+
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Stdout(line) => {
+                    println!("[navi-backend] {}", String::from_utf8_lossy(&line));
+                }
+                CommandEvent::Stderr(line) => {
+                    eprintln!("[navi-backend:err] {}", String::from_utf8_lossy(&line));
+                }
+                CommandEvent::Terminated(status) => {
+                    println!("Navi backend exited (code: {:?})", status.code);
+                    let _ = app_handle.emit("backend-exited", status.code);
+                    break;
+                }
+                CommandEvent::Error(err) => {
+                    eprintln!("Navi backend error: {}", err);
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+
+    Some(child)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_shell::init())
+        .manage(BackendProcess(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![greet, get_cursor_position, get_screen_size])
         .setup(|app| {
             use tauri::{
                 image::Image,
                 menu::{Menu, MenuItem},
                 tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-                Manager,
             };
 
-            // 创建托盘右键菜单
-            let show_item = MenuItem::with_id(app, "show", "显示 Navi", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            // Start Python backend sidecar
+            let backend_child = spawn_backend(&app.handle());
+            if let Some(child) = backend_child {
+                let state = app.state::<BackendProcess>();
+                *state.0.lock().unwrap() = Some(child);
+            } else {
+                eprintln!("Backend failed to start, frontend will run without API");
+            }
+
+            // Tray menu
+            let show_item = MenuItem::with_id(app, "show", "Show Navi", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
-            // 用应用图标作为托盘图标
             let icon = Image::from_path(
                 app.path().resource_dir()
                     .unwrap_or_else(|_| std::path::PathBuf::from("."))
@@ -85,7 +151,7 @@ pub fn run() {
             TrayIconBuilder::new()
                 .icon(icon)
                 .menu(&menu)
-                .tooltip("Navi - AI 桌宠助手")
+                .tooltip("Navi - AI Desktop Companion")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(win) = app.get_webview_window("main") {
@@ -94,12 +160,17 @@ pub fn run() {
                         }
                     }
                     "quit" => {
+                        if let Some(state) = app.try_state::<BackendProcess>() {
+                            if let Some(child) = state.0.lock().unwrap().take() {
+                                println!("Shutting down Navi backend...");
+                                let _ = child.kill();
+                            }
+                        }
                         app.exit(0);
                     }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    // 左键单击托盘图标 → 显示/隐藏窗口
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
@@ -121,10 +192,8 @@ pub fn run() {
 
             Ok(())
         })
-        // 拦截关闭事件：隐藏窗口而不是退出
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // 只拦截主窗口，live2d 伴侣窗口正常关闭
                 if window.label() == "main" {
                     api.prevent_close();
                     let _ = window.hide();

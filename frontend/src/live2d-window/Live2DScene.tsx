@@ -150,7 +150,7 @@ export function Live2DScene({
   modelScale = 1.0,
   offsetY = 0,
   mouthOpenValue = 0,
-  globalMousePos = null,
+  globalMousePos: _globalMousePos = null,
 }: Live2DSceneProps) {
   const canvasRef        = useRef<HTMLCanvasElement>(null)
   const appRef           = useRef<PIXI.Application | null>(null)

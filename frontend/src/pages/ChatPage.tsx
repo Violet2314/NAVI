@@ -57,7 +57,7 @@ function WeChatStatusBar() {
   const [status, setStatus] = useState<{online:boolean;account_id:string;has_credentials:boolean} | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [qrUrl, setQrUrl] = useState("");
-  const [loginStatus, setLoginStatus] = useState<"idle"|"pending"|"scanned"|"confirmed"|"error">("idle");
+  const [loginStatus, setLoginStatus] = useState<"idle"|"pending"|"scanned"|"confirmed"|"error"|"expired">("idle");
   const [loginError, setLoginError] = useState("");
   const evtRef = useRef<EventSource | null>(null);
 

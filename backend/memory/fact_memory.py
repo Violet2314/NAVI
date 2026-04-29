@@ -522,13 +522,15 @@ def _llm_check_contradictions(new_content: str, candidates: List[Dict]) -> List[
 
 
 # ══════════════════════════════════════════════════════════════════
-#  准入控制（A-MAC 简化版，纯规则）
+#  准入控制（轻量规则，不是所有对话都值得 LLM 抽取）
 # ══════════════════════════════════════════════════════════════════
 
 def should_ingest(messages: List[Dict]) -> Tuple[bool, str]:
     """
     准入判断：这次会话是否值得提取记忆？
-    基于 A-MAC (ICLR 2026) 的 Type Prior 特征（权重 0.60）简化版。
+
+    为什么要这一步：LLM 抽取一次要花 token，
+    对于过短/过空/纯工具调用的会话，抽取结果大概率是空 —— 直接跳过。
     """
     user_turns = [m for m in messages if m.get("role") == "user"]
 

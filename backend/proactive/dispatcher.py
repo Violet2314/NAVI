@@ -246,7 +246,13 @@ class Dispatcher:
                 pass
 
             # 发到微信：不带 [主动对话] 前缀，自动按 [SPLIT] 拆段
-            await wechat.send_to_last_user(message)
+            try:
+                await wechat.send_to_last_user(message)
+            except Exception as send_err:
+                logger.warning(
+                    f"[WeChat] 主动对话发送失败（iLink 业务错误）event_id={event_id}: {send_err}"
+                )
+                return
             logger.info(f"[WeChat] 主动对话已推送: {event_id}")
 
         except Exception as e:

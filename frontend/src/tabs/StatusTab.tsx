@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useCallback } from "react";
 import { API } from "../utils/api";
-import { Camera, User, UserX, HelpCircle, FileText, RefreshCw } from "lucide-react";
+import { Camera, User, UserX, RefreshCw } from "lucide-react";
 
 export function StatusDot({ ok }: { ok: boolean }) {
   return (
@@ -382,9 +382,8 @@ export function ReportCard() {
       setMsgOk(false);
     }
     // done 状态保留 8 秒后清空提示，但不回退 state
-    if (state !== "waiting") {
-      setTimeout(() => setMsg(""), 8000);
-    }
+    // waiting 已在函数开头 return，走到这里的一定不是 waiting
+    setTimeout(() => setMsg(""), 8000);
   };
 
   const generating = state === "generating";

@@ -261,40 +261,14 @@ def _delete_credentials() -> None:
         path.unlink()
 
 
-def _save_last_user_id(user_id: str) -> None:
-    """持久化最近微信用户 ID，供 proactive 推送使用"""
-    path = _get_wechat_data_dir() / "last_user.json"
-    path.write_text(json.dumps({"user_id": user_id}), encoding="utf-8")
-
-
-def _load_last_user_id() -> Optional[str]:
-    """加载持久化的最近微信用户 ID"""
-    path = _get_wechat_data_dir() / "last_user.json"
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data.get("user_id")
-    except Exception:
-        return None
-
-
-def _save_last_user_id(user_id: str) -> None:
-    """持久化最近活跃的微信用户 ID"""
-    path = _get_wechat_data_dir() / "last_user.json"
-    path.write_text(json.dumps({"user_id": user_id}), encoding="utf-8")
-
-
-def _load_last_user_id() -> Optional[str]:
-    """读取持久化的最近活跃微信用户 ID"""
-    path = _get_wechat_data_dir() / "last_user.json"
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data.get("user_id")
-    except Exception:
-        return None
+def _is_valid_wechat_user_id(user_id: Optional[str]) -> bool:
+    """
+    判断一个 user_id 是否是合法的 iLink 微信用户 ID。
+    真实格式形如 `o9cq807xLWWyKNHAmFfDBgbBGpuY@im.wechat`。
+    """
+    if not user_id or not isinstance(user_id, str):
+        return False
+    return user_id.endswith("@im.wechat")
 
 
 def _load_sync_buf() -> str:
@@ -593,6 +567,9 @@ class WeChatChannel:
         self._context_tokens = _load_context_tokens()
         self._sync_buf = _load_sync_buf()
 
+        # 从凭证里直接确定主动推送目标（= 主人）
+        self._restore_last_user_id()
+
         if self._client is None:
             self._client = httpx.AsyncClient()
 
@@ -624,14 +601,23 @@ class WeChatChannel:
         _delete_credentials()
         self._token = ""
         self._account_id = ""
+        self._last_user_id = ""
         logger.info("[WeChat] 已登出，凭证已清除")
 
     # ── 发送消息 ──────────────────────────────────────────────────
 
     async def send_text(self, user_id: str, text: str) -> None:
-        """发送文本消息到微信用户（自动分片）"""
+        """发送文本消息到微信用户（自动分片）。
+
+        iLink 即使业务失败也会返回 HTTP 200，只在 body 里带 ret != 0，
+        所以这里必须显式校验 ret，否则失败会被静默吞掉，导致上游
+        （例如 proactive dispatcher）打出"已推送"的误导日志。
+        """
         if not self._client or not self._token:
             raise RuntimeError("WeChat Bot 未连接")
+
+        if not _is_valid_wechat_user_id(user_id):
+            raise RuntimeError(f"非法 WeChat user_id: {user_id!r}")
 
         chunks = _split_message(text)
         for i, chunk in enumerate(chunks):
@@ -650,7 +636,16 @@ class WeChatChannel:
                 },
                 "base_info": _base_info(),
             }
-            await _ilink_post(self._client, self._base_url, EP_SEND_MESSAGE, payload, self._token)
+            resp = await _ilink_post(
+                self._client, self._base_url, EP_SEND_MESSAGE, payload, self._token,
+            )
+            ret = resp.get("ret", 0)
+            if ret != 0:
+                errmsg = resp.get("errmsg") or resp.get("err_msg") or str(resp)[:200]
+                raise RuntimeError(
+                    f"[WeChat] sendmessage 失败 to={user_id[:12]}*** "
+                    f"ret={ret} errmsg={errmsg}"
+                )
             if len(chunks) > 1 and i < len(chunks) - 1 and self.send_chunk_delay > 0:
                 await asyncio.sleep(self.send_chunk_delay)
 
@@ -787,18 +782,38 @@ class WeChatChannel:
             pass  # typing 失败不影响
 
     def _restore_last_user_id(self) -> None:
-        """从持久化文件恢复最近活跃的微信用户 ID（用于 proactive 推送）。"""
-        user_id = _load_last_user_id()
-        if user_id:
-            self._last_user_id = user_id
-            logger.info("[WeChat] 恢复最近用户: %s***", self._last_user_id[:8])
+        """
+        从登录凭证恢复 Bot 主人的微信 ID（主动对话 / cron 推送目标）。
+
+        Bot 主人 = QR 扫码登录时 iLink 返回的 `ilink_user_id`，
+        存在 credentials.json 里，重装/重启都稳定可用。
+
+        我们不再追踪"最近发消息的人"——那在多人场景下会把主动对话
+        发给错误的陌生人（谁刚发过消息就会覆盖 _last_user_id）。
+        """
+        creds = _load_credentials()
+        if creds and _is_valid_wechat_user_id(creds.user_id):
+            self._last_user_id = creds.user_id
+            logger.info(
+                "[WeChat] 主动推送目标 = 主人: %s***", creds.user_id[:8],
+            )
+        else:
+            logger.warning(
+                "[WeChat] 凭证里的 user_id 非法（%r），主动推送将被跳过",
+                creds.user_id if creds else None,
+            )
 
     async def send_to_last_user(self, text: str) -> None:
         """发送消息给最近活跃的微信用户（主动对话推送用），自动按 [SPLIT] 拆分多段"""
         if not self._last_user_id:
             self._restore_last_user_id()  # 兜底：每次推送前尝试从 DB 恢复
-        if not self._last_user_id:
-            logger.debug("[WeChat] 没有最近用户，跳过主动推送")
+        if not _is_valid_wechat_user_id(self._last_user_id):
+            logger.info(
+                "[WeChat] 没有合法的最近用户（当前=%r），跳过主动推送",
+                self._last_user_id,
+            )
+            # 清空内存中的脏值，避免反复尝试
+            self._last_user_id = ""
             return
         segments = [s.strip() for s in text.split("[SPLIT]") if s.strip()] or [text]
         for i, seg in enumerate(segments):
@@ -884,8 +899,10 @@ class WeChatChannel:
             self._context_tokens[from_user_id] = context_token
             _save_context_tokens(self._context_tokens)
 
-        self._last_user_id = from_user_id
-        _save_last_user_id(from_user_id)  # 持久化，供 proactive 推送使用
+        # 注意：这里 **不** 更新 self._last_user_id。
+        # 主动对话/cron 的推送目标固定是 Bot 主人（来自 credentials.user_id），
+        # 不能被"刚刚发过消息的任何人"覆盖，否则陌生人一发消息就会把
+        # Navi 的主动问候发到他那里去。
         logger.info(f"[WeChat] 收到消息 from={from_user_id[:8]}***: {text[:50]}")
 
         # 发送 typing 状态

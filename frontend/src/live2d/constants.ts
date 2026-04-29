@@ -60,6 +60,7 @@ export const EMOTION_KEYWORDS: Record<EmotionType, string[]> = {
   question:  ['？', '什么', '怎么', '为什么', 'what', 'how', 'why', '?'],
   curious:   ['有趣', '好奇', '发现', '原来', 'interesting', 'curious', 'found'],
   neutral:   [],
+  normal:    [],
 }
 
 // 用 LLM 回复内容推断情绪（按优先级顺序匹配）
@@ -91,6 +92,7 @@ const EMOTION_MOTION_FUZZY: Record<EmotionType, string[]> = {
   question:  ['question', 'ask', 'query', 'curious2', 'doubt'],
   curious:   ['curious', 'interest', 'peek', 'look'],
   neutral:   ['idle', 'wait', 'stand'],
+  normal:    ['idle', 'wait', 'stand'],
 }
 
 const ALL_EMOTIONS: EmotionType[] = [

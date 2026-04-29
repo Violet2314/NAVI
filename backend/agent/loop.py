@@ -46,11 +46,13 @@ if TYPE_CHECKING:
     from cron.service import CronService
 
 
-# 在第 N 轮工具调用时强制插入一次反思，让 LLM 自评进展、防止跑偏
-_REFLECT_AT: frozenset[int] = frozenset({15, 30})
+# 反思阶段硬上限兜底：无论动态条件是否触发，到达这一轮一定反思一次。
+# 动态触发条件在 Scratchpad.should_reflect() 里（连续同工具/失败/打转）。
+_REFLECT_HARD_CAP: int = 30
 
 _REFLECT_PROMPT = (
     "（系统提示：你已经调用了 {iteration} 次工具。\n"
+    "反思触发原因：{reason}\n\n"
     "请简短自评当前进展：\n"
     "1. 当前目标：\n"
     "2. 已完成的步骤：\n"
@@ -247,16 +249,36 @@ class AgentLoop:
         # ── Scratchpad：结构化便签本，追踪"试过什么 / 学到什么" ──────────
         scratch = Scratchpad(goal="")
 
+        # 反思去重：同一原因在短窗口内不重复触发，避免连环反思
+        _last_reflect_iter: int = -10
+        _last_reflect_reason: str = ""
+        _REFLECT_COOLDOWN: int = 5  # 两次反思之间至少隔 5 轮
+
         while iteration < self.max_iterations:
             iteration += 1
 
-            # ── 反思阶段：在关键轮次强制 LLM 自评进展 ────────────────────────
-            # 关闭工具调用，让 LLM 评估是否已可直接回复、是否需要换策略。
-            # 反思结果追加到消息列表作为上下文，反思失败不阻塞主循环。
-            if iteration in _REFLECT_AT:
+            # ── 反思阶段：动态触发 + 硬上限兜底 ──────────────────────────────
+            # 动态条件（Scratchpad.should_reflect）：
+            #   连续同名工具 / 连续失败 / observation 打转
+            # 硬上限兜底（iteration == _REFLECT_HARD_CAP）：
+            #   即使没有动态信号，也强制反思一次
+            _reflect_reason: str | None = None
+            if iteration - _last_reflect_iter >= _REFLECT_COOLDOWN:
+                _reflect_reason = scratch.should_reflect()
+                if (
+                    _reflect_reason is None
+                    and iteration == _REFLECT_HARD_CAP
+                ):
+                    _reflect_reason = f"已达反思硬上限 {_REFLECT_HARD_CAP} 轮"
+
+            if _reflect_reason:
+                _last_reflect_iter = iteration
+                _last_reflect_reason = _reflect_reason
                 _reflect_msg = {
                     "role": "user",
-                    "content": _REFLECT_PROMPT.format(iteration=iteration),
+                    "content": _REFLECT_PROMPT.format(
+                        iteration=iteration, reason=_reflect_reason
+                    ),
                 }
                 try:
                     _reflect_resp = await self.provider.chat_with_retry(
@@ -271,8 +293,9 @@ class AgentLoop:
                             {"role": "assistant", "content": _reflect_text},
                         ]
                         logger.info(
-                            "ReAct reflection at iter {}: {}",
+                            "ReAct reflection at iter {} (reason={}): {}",
                             iteration,
+                            _reflect_reason,
                             _reflect_text[:120],
                         )
                         # 如果反思阶段 LLM 直接给出了最终答案（不再调用工具），
@@ -392,6 +415,7 @@ class AgentLoop:
                         action=f"{tool_call.name}({summarize_args(tool_call.arguments)})",
                         observation=str(result)[:120],
                         success=_tool_ok,
+                        tool_name=tool_call.name,
                     ))
 
                     messages = self.context.add_tool_result(
