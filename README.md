@@ -599,6 +599,7 @@ Navi 站在很多肩膀上：
 - **[MineContext](https://github.com/volcengine/MineContext)** — Context Engineering 架构思路上的参考。
 - **Live2D Cubism SDK** — 让角色"活着"的渲染引擎。
 - **live2d阿米娅** 来自哔哩哔哩的泡芙妙妙屋老师的免费模型
+- **感谢[LINUXDO社区](https://linux.do/)**
 ---
 
 > [!NOTE]
