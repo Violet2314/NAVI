@@ -1,0 +1,12 @@
+﻿[
+    {
+        "id":  "hiyori_pro_zh",
+        "name":  "hiyori_pro_zh",
+        "src":  "/live2d/hiyori_pro_zh/runtime/hiyori_pro_t11.model3.json"
+    },
+    {
+        "id":  "model_by_泡芙妙妙屋_d0dfb8a6167ae67df251f6a89ee27330",
+        "name":  "model_by_泡芙妙妙屋_d0dfb8a6167ae67df251f6a89ee27330",
+        "src":  "/live2d/model_by_泡芙妙妙屋_d0dfb8a6167ae67df251f6a89ee27330/model/兔兔-阿米娅.model3.json"
+    }
+]
