@@ -207,9 +207,17 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const streamBufRef = useRef<string>("");
   const streamingIdRef = useRef<string | null>(null);  // ref 版本，供闭包使用
+  // 微信会话：被 ws.onmessage 复用的"按 session 重新拉历史"函数，
+  // 通过 ref 传入避免闭包捕获过期的 sessionId。
+  const reloadWechatHistoryRef = useRef<(() => void) | null>(null);
+  // msgs 的实时镜像，让 reload 计算"新增气泡"时能拿到最新值，
+  // 而不必把 setTimeout 写在 setMsgs 回调里（React 反模式 + StrictMode 会双跑）。
+  const msgsRef = useRef<ChatMsg[]>([]);
 
   // 同步 streamingId 到 ref
   useEffect(() => { streamingIdRef.current = streamingId; }, [streamingId]);
+  // 实时同步 msgs 到 ref，供 reloadWechatHistory 比较"新增气泡"用
+  useEffect(() => { msgsRef.current = msgs; }, [msgs]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -225,6 +233,13 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     ws.onmessage = (e) => {
       const data = JSON.parse(e.data);
       const ts = nowTime();
+      if (data.type === "wechat_message") {
+        // 微信侧有新消息（用户发来 / Bot 回复 / 主动对话），
+        // 当前在 __wechat__ 会话时重新从 DB 拉取以保证一致性。
+        // 注意：不要把同一条消息再当作 reply 渲染，否则会出现拼接重复气泡。
+        if (sid === WECHAT_SESSION_ID) reloadWechatHistoryRef.current?.();
+        return;
+      }
       if (data.type === "thinking") {
         setThinking(true);
       } else if (data.type === "tool_hint" || data.type === "progress") {
@@ -292,6 +307,10 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         // cron / proactive 全量消息：broadcaster 广播，按 chat_id 过滤后插入
         // data.chat_id 存在时只处理属于当前 session 的消息
         if (data.chat_id && data.chat_id !== sessionId) return;
+        // 微信渠道的 reply 仅供 Live2D / TTS 同步使用，
+        // 聊天气泡已经由 wechat_message → reloadWechatHistory 渲染（带 [SPLIT] 拆分）。
+        // 这里若再渲染会出现一条「全部拼接」的重复气泡，所以直接忽略。
+        if (data.source === "wechat" || data.source === "wechat_proactive") return;
         setThinking(false);
         const rawParts = (data.content || "")
           .split("[SPLIT]").map((s: string) => s.trim()).filter(Boolean);
@@ -372,6 +391,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
       return;
     }
     setMsgs([]); setThinking(false); setStreamingId(null);
+    const isWechatSid = sessionId === WECHAT_SESSION_ID;
     fetch(`${API}/api/chat/sessions/${sessionId}/messages?limit=100`)
       .then(r => r.json())
       .then((data: {role: string; content: string; created_at: string; images?: string[]}[]) => {
@@ -386,13 +406,16 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
             const parts = m.content.split("[SPLIT]").map(s => s.trim()).filter(Boolean);
             parts.forEach((part, i) => {
               // 图片只挂在最后一条拆分消息上
-              expanded.push({ id: msgId(), role: "assistant", content: part, ts,
+              // 微信会话用稳定 id（基于 created_at + index），让 reload 时差量比较生效，避免闪烁
+              expanded.push({
+                id: isWechatSid ? `${m.created_at}#${i}` : msgId(),
+                role: "assistant", content: part, ts,
                 ...(i === parts.length - 1 && images ? { images } : {}),
               });
             });
           } else {
             expanded.push({
-              id: msgId(),
+              id: isWechatSid ? `${m.created_at}#0` : msgId(),
               role: (m.role === "assistant" ? "assistant" : m.role) as MsgRole,
               content: m.content,
               ts,
@@ -485,46 +508,82 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
 
   const isWechat = sessionId === WECHAT_SESSION_ID;
 
-  // 微信会话：WS 收到 wechat_message 时重新从 DB 拉取（避免和初始加载重复）
+  // 微信会话：把"按 sessionId 重新拉历史 + 差量更新 + 新增气泡逐条冒"函数挂到 ref，
+  // 让 connectWS 的 ws.onmessage 闭包通过 ref 调用，避免 sessionId 过期，
+  // 也避免每次重连都 monkey-patch ws.onmessage 导致重复触发 / 闪烁。
   useEffect(() => {
-    if (!isWechat || !wsRef.current) return;
-    const ws = wsRef.current;
-    const originalOnMessage = ws.onmessage;
-    ws.onmessage = (e) => {
-      if (originalOnMessage) (originalOnMessage as (ev: MessageEvent) => void)(e);
-      try {
-        const data = JSON.parse(e.data);
-        if (data.type === "wechat_message" && sessionId) {
-          // 重新 fetch DB，避免和初始加载的消息重复
-          fetch(`${API}/api/chat/sessions/${sessionId}/messages?limit=100`)
-            .then(r => r.json())
-            .then((rows: {role: string; content: string; created_at: string; images?: string[]}[]) => {
-              const expanded: ChatMsg[] = [];
-              rows.forEach(m => {
-                const ts = new Date(m.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-                const images = m.images?.length
-                  ? m.images.map(src => src.startsWith("http") ? src : `${API}${src}`)
-                  : undefined;
-                if (m.role === "assistant" && m.content.includes("[SPLIT]")) {
-                  m.content.split("[SPLIT]").map(s => s.trim()).filter(Boolean).forEach((part, i, arr) => {
-                    expanded.push({ id: msgId(), role: "assistant", content: part, ts,
-                      ...(i === arr.length - 1 && images ? { images } : {}),
-                    });
-                  });
-                } else {
-                  expanded.push({ id: msgId(), role: m.role as MsgRole, content: m.content, ts,
-                    ...(images ? { images } : {}),
-                  });
-                }
+    if (!isWechat || !sessionId) {
+      reloadWechatHistoryRef.current = null;
+      return;
+    }
+    // 逐条冒泡的间隔（毫秒），跟手机微信节奏对齐
+    const TYPING_INTERVAL = 600;
+    reloadWechatHistoryRef.current = () => {
+      fetch(`${API}/api/chat/sessions/${sessionId}/messages?limit=100`)
+        .then(r => r.json())
+        .then((rows: {role: string; content: string; created_at: string; images?: string[]}[]) => {
+          if (!Array.isArray(rows)) return;
+          const expanded: ChatMsg[] = [];
+          rows.forEach(m => {
+            const ts = new Date(m.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+            const images = m.images?.length
+              ? m.images.map(src => src.startsWith("http") ? src : `${API}${src}`)
+              : undefined;
+            if (m.role === "assistant" && m.content.includes("[SPLIT]")) {
+              m.content.split("[SPLIT]").map(s => s.trim()).filter(Boolean).forEach((part, i, arr) => {
+                expanded.push({
+                  // 稳定 id：基于 created_at + index，让差量比较跨 reload 生效
+                  id: `${m.created_at}#${i}`,
+                  role: "assistant", content: part, ts,
+                  ...(i === arr.length - 1 && images ? { images } : {}),
+                });
               });
-              setMsgs(expanded);
-            })
-            .catch(() => {});
-        }
-      } catch { /* ignore */ }
+            } else {
+              expanded.push({
+                id: `${m.created_at}#0`,
+                role: m.role as MsgRole, content: m.content, ts,
+                ...(images ? { images } : {}),
+              });
+            }
+          });
+
+          // 1) 用当前真实 msgs 计算"新增"，避免在 setMsgs 回调里写副作用
+          const currentMsgs = msgsRef.current;
+          if (currentMsgs.length === expanded.length
+            && currentMsgs.every((p, i) => p.id === expanded[i].id && p.content === expanded[i].content)) {
+            return; // 完全一致，直接跳过
+          }
+          const existingIds = new Set(currentMsgs.map(p => p.id));
+          const stillExisting = expanded.filter(e => existingIds.has(e.id));
+          const newOnes = expanded.filter(e => !existingIds.has(e.id));
+          const instantNew = newOnes.filter(e => e.role !== "assistant");
+          const typingNew = newOnes.filter(e => e.role === "assistant");
+
+          console.log("[wechat reload] existing=%d, instantNew=%d, typingNew=%d",
+            stillExisting.length, instantNew.length, typingNew.length);
+
+          // 2) 首帧：已有 + 新用户消息 + 第一条新 assistant
+          const firstFrame: ChatMsg[] = [...stillExisting, ...instantNew];
+          if (typingNew.length > 0) firstFrame.push(typingNew[0]);
+          setMsgs(firstFrame);
+
+          // 3) 剩余 assistant 气泡：在 setMsgs 之外、用真正的 setTimeout 排队逐条追加
+          typingNew.slice(1).forEach((bubble, idx) => {
+            const delay = (idx + 1) * TYPING_INTERVAL;
+            setTimeout(() => {
+              setMsgs(cur => {
+                if (cur.some(c => c.id === bubble.id)) return cur;
+                return [...cur, bubble];
+              });
+            }, delay);
+            console.log("[wechat typing] queued bubble #%d in %dms: %s", idx + 1, delay, bubble.content.slice(0, 20));
+          });
+        })
+        .catch(() => {});
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWechat, connected]);
+  }, [isWechat, sessionId]);
+
+
 
   // ── 渲染 ──────────────────────────────────────────────────────────────────
   return (

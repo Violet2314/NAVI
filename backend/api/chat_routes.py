@@ -199,9 +199,13 @@ def get_messages(session_id: str, limit: int = 100, offset: int = 0):
         row = conn.execute("SELECT id FROM chat_sessions WHERE id=?", (session_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="会话不存在")
+        # 取最新的 limit 条（按 id DESC + LIMIT），再按时间升序返回给前端渲染。
+        # 避免 ORDER BY ASC + LIMIT 时新消息被截断在最后看不到。
         rows = conn.execute(
-            "SELECT id, role, content, tool_name, images, created_at FROM chat_messages "
-            "WHERE session_id=? ORDER BY id ASC LIMIT ? OFFSET ?",
+            "SELECT id, role, content, tool_name, images, created_at FROM ("
+            "  SELECT id, role, content, tool_name, images, created_at FROM chat_messages "
+            "  WHERE session_id=? ORDER BY id DESC LIMIT ? OFFSET ?"
+            ") ORDER BY id ASC",
             (session_id, limit, offset)
         ).fetchall()
         result = []
