@@ -543,10 +543,38 @@ def _mark_inquiry_timeout(db_path: str, date_str: str) -> None:
         logger.warning(f"标记 inquiry timeout 失败: {e}")
 
 
+def _save_inquiry_to_chat(content: str, role: str = "assistant") -> None:
+    """把日报追问相关的消息写入固定的 __report_inquiry__ 会话，
+    这样即使用户当时没开 ChatPage，切过去也能看到历史。
+    任何失败都只打 warning，不影响主流程。"""
+    try:
+        from api.chat_routes import save_message, ensure_session, REPORT_INQUIRY_SESSION_ID, REPORT_INQUIRY_SESSION_TITLE
+        ensure_session(REPORT_INQUIRY_SESSION_ID, title=REPORT_INQUIRY_SESSION_TITLE)
+        save_message(REPORT_INQUIRY_SESSION_ID, role, content)
+    except Exception as e:
+        logger.warning(f"写入日报追问会话失败（不影响主流程）: {e}")
+
+
+def _format_inquiry_content(gap: "InfoGap", date_str: str) -> str:
+    """把 gap 格式化成一条面向用户的消息文本。"""
+    intro = ""
+    if gap.time_range and gap.app_summary:
+        intro = f"\n（关于 {gap.time_range} 那段在 {gap.app_summary}）"
+    return f"{gap.question}{intro}"
+
+
 def _push_inquiry_to_user(gap: "InfoGap", date_str: str) -> None:
-    """通过 broadcaster 把追问推给前端（Live2D 弹窗 / 聊天框）。"""
+    """通过 broadcaster 把追问推给前端（Live2D 弹窗 / 聊天框），
+    同时把这条追问持久化到 __report_inquiry__ 会话，保证 ChatPage 翻历史也能看到。"""
+    content = _format_inquiry_content(gap, date_str)
+
+    # 1) 先落 DB：即使广播失败，切到"日报追问"会话也能看到这条追问
+    _save_inquiry_to_chat(content, role="assistant")
+
+    # 2) 再广播实时事件：让 Live2D / 已挂载的 ChatPage 能立刻响应
     try:
         from bus.broadcaster import get_broadcaster
+        from api.chat_routes import REPORT_INQUIRY_SESSION_ID
         get_broadcaster().broadcast_sync({
             "type": "navi:report_inquiry",
             "date": date_str,
@@ -556,6 +584,7 @@ def _push_inquiry_to_user(gap: "InfoGap", date_str: str) -> None:
             "duration_min": gap.duration_min,
             "timeout_sec": INQUIRY_TIMEOUT_SEC,
             "emotion": "curious",
+            "chat_id": REPORT_INQUIRY_SESSION_ID,
         })
         logger.info(f"已推送追问到前端: {gap.question[:40]}")
     except Exception as e:
@@ -619,6 +648,12 @@ def generate_daily_report(
                     if pending and pending.get("status") == "pending":
                         logger.info(f"inquiry 超时（{INQUIRY_TIMEOUT_SEC}s 无回答），强制生成日报")
                         _mark_inquiry_timeout(db_path, date_str)
+                        # 往追问会话里补一条说明，让用户知道日报是自动生成的
+                        _save_inquiry_to_chat(
+                            "等太久没等到你的回答，我先自己把今天的日报写出来啦~ "
+                            "你之后想补充随时告诉我就好！📝",
+                            role="assistant",
+                        )
                         try:
                             generate_daily_report(date_str=date_str, skip_gap_check=True)
                         except Exception as e:

@@ -157,11 +157,9 @@ class ProactiveMessageGenerator:
         return "\n".join(parts)
 
     def _parse_emotion(self, text: str) -> tuple[Optional[str], str]:
-        """从 LLM 输出中提取情绪标签并清理"""
-        emotion_match = re.search(r'\[EMOTION:(\w+)\]', text, re.IGNORECASE)
-        emotion = emotion_match.group(1).lower() if emotion_match else None
-        clean = re.sub(r'\s*\[EMOTION:\w+\]', '', text, flags=re.IGNORECASE).strip()
-        return emotion, clean
+        """从 LLM 输出中提取情绪标签并清理（兼容 `[EMOTION: xxx]` 带空格的变体）"""
+        from utils.helpers import parse_emotion_tag
+        return parse_emotion_tag(text)
 
     def _fallback_message(self, strategy: str, trigger: Trigger) -> str:
         """LLM 调用失败时的降级消息"""

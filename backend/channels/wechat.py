@@ -995,9 +995,9 @@ class WeChatChannel:
                 if _msg_tool and _original_cb:
                     _msg_tool._send_callback = _original_cb  # type: ignore
 
-            # 清理情绪标签
-            import re
-            reply = re.sub(r'\s*\[EMOTION:\w+\]', '', reply, flags=re.IGNORECASE).strip()
+            # 清理情绪标签（兼容 `[EMOTION: xxx]` 带空格变体）
+            from utils.helpers import strip_emotion_tag
+            reply = strip_emotion_tag(reply)
 
             # 广播用户消息到前端
             try:

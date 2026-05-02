@@ -543,12 +543,9 @@ class AgentLoop:
         except Exception as e:
             logger.warning("Cron job '{}' DB persist failed: {}", job.name, e)
 
-        # ── 2. 从消息内容提取情绪标签（如果 LLM 生成的 cron 内容带了 [EMOTION:xxx]）
-        import re as _re
-        _emotion_match = _re.search(r'\[EMOTION:(\w+)\]', content, _re.IGNORECASE)
-        emotion = _emotion_match.group(1).lower() if _emotion_match else None
-        # 清理内容中的情绪标签
-        content = _re.sub(r'\s*\[EMOTION:\w+\]', '', content, flags=_re.IGNORECASE).strip()
+        # ── 2. 从消息内容提取情绪标签（兼容 `[EMOTION: xxx]` 带空格变体）──
+        from utils.helpers import parse_emotion_tag
+        emotion, content = parse_emotion_tag(content)
 
         # ── 3. broadcaster 广播 type="reply"（Live2D 和 ChatPage 都能处理）──
         #    broadcaster 广播全量内容，不走流式协议

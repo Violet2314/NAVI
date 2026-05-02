@@ -48,6 +48,35 @@ def safe_filename(name: str) -> str:
     return _UNSAFE_CHARS.sub("_", name).strip()
 
 
+# 兼容 LLM 输出里常见的空格变体，如 `[EMOTION:happy]`, `[EMOTION: happy]`, `[EMOTION :  HAPPY ]`。
+# 允许冒号两边有空格、值两边有空格，带前导空白一起吞掉以免产生残留空格。
+_EMOTION_TAG_RE = re.compile(r"\s*\[\s*EMOTION\s*:\s*(\w+)\s*\]", re.IGNORECASE)
+
+
+def parse_emotion_tag(text: str) -> tuple[str | None, str]:
+    """Extract a trailing ``[EMOTION:xxx]`` tag from an LLM reply.
+
+    The LLM prompt asks for ``[EMOTION:happy]`` but small models often emit
+    ``[EMOTION: happy]`` (with whitespace) or mixed case. A stricter regex
+    like ``r'\\[EMOTION:(\\w+)\\]'`` silently fails to strip these,
+    so the tag leaks into user-facing channels (WeChat, TTS, etc.).
+
+    Returns ``(emotion_lowercase_or_None, cleaned_text)``.
+    ``cleaned_text`` has all matched tags removed and trailing whitespace stripped.
+    """
+    if not text:
+        return None, text
+    m = _EMOTION_TAG_RE.search(text)
+    emotion = m.group(1).lower() if m else None
+    clean = _EMOTION_TAG_RE.sub("", text).strip()
+    return emotion, clean
+
+
+def strip_emotion_tag(text: str) -> str:
+    """Convenience wrapper: drop any ``[EMOTION:xxx]`` tag, return cleaned text only."""
+    return parse_emotion_tag(text)[1]
+
+
 def split_message(content: str, max_len: int = 2000) -> list[str]:
     """
     Split content into chunks within max_len, preferring line breaks.
