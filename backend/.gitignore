@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Skills directory
+skills/
+projects/
+
+# Temp files
+temp_*

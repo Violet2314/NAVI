@@ -113,12 +113,11 @@ class SubagentManager:
                 {"role": "user", "content": task},
             ]
 
-            # Run agent loop (limited iterations)
-            max_iterations = 15
+            # Run agent loop (unlimited — long tasks like PPT generation need it)
             iteration = 0
             final_result: str | None = None
 
-            while iteration < max_iterations:
+            while True:
                 iteration += 1
 
                 response = await self.provider.chat_with_retry(
