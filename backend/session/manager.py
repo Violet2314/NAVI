@@ -86,9 +86,17 @@ class Session:
         out: list[dict[str, Any]] = []
         for message in sliced:
             entry: dict[str, Any] = {"role": message["role"], "content": message.get("content", "")}
-            for key in ("tool_calls", "tool_call_id", "name"):
+            # 注意：reasoning_content / thinking_blocks 必须保留并回传给 thinking 模型
+            # （MiniMax-M2.5 / Kimi / DeepSeek-R1 等）。否则服务端会报 400：
+            # "The reasoning_content in the thinking mode must be passed back to the API."
+            for key in ("tool_calls", "tool_call_id", "name", "reasoning_content", "thinking_blocks"):
                 if key in message:
                     entry[key] = message[key]
+            # 兜底：修复前写入的旧 assistant 消息可能完全没有 reasoning_content 字段，
+            # 而 thinking 模型的服务端校验会因此 400。这里统一补个占位串，
+            # 让历史会话不必删档也能继续使用。对非 thinking 模型这个字段无副作用。
+            if entry["role"] == "assistant" and "reasoning_content" not in entry:
+                entry["reasoning_content"] = ""
             out.append(entry)
         return out
 

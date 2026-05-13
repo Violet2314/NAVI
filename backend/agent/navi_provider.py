@@ -170,8 +170,25 @@ class NaviLLMProvider(LLMProvider):
                     arguments=args,
                 ))
 
+        # 思考型模型（MiniMax-M2.5/Kimi/DeepSeek-R1 等）会返回 reasoning_content。
+        # 服务端硬性要求：下一轮调用必须把它原样塞回对应 assistant 消息，
+        # 否则报 400 "The reasoning_content in the thinking mode must be passed back to the API"。
+        reasoning_content = getattr(msg, "reasoning_content", None) or None
+        thinking_blocks   = getattr(msg, "thinking_blocks", None) or None
+
+        usage: dict[str, int] = {}
+        if getattr(resp, "usage", None):
+            usage = {
+                "prompt_tokens":     getattr(resp.usage, "prompt_tokens", 0) or 0,
+                "completion_tokens": getattr(resp.usage, "completion_tokens", 0) or 0,
+                "total_tokens":      getattr(resp.usage, "total_tokens", 0) or 0,
+            }
+
         return LLMResponse(
             content=msg.content or "",
             tool_calls=tool_calls,
             finish_reason=choice.finish_reason or "stop",
+            usage=usage,
+            reasoning_content=reasoning_content,
+            thinking_blocks=thinking_blocks,
         )
