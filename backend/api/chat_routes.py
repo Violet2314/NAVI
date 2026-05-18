@@ -30,6 +30,11 @@ PROACTIVE_SESSION_TITLE = "主动对话"
 WECHAT_SESSION_ID = "__wechat__"
 WECHAT_SESSION_TITLE = "微信对话"
 
+# 日报追问专用会话 ID（不可删除 / 不可重命名）
+# 日报生成流程检测到 gap 后，把追问写入此会话；用户的回答也在这里回复。
+REPORT_INQUIRY_SESSION_ID = "__report_inquiry__"
+REPORT_INQUIRY_SESSION_TITLE = "日报追问"
+
 
 def _get_db() -> sqlite3.Connection:
     cfg = get_config()
@@ -62,16 +67,18 @@ def list_sessions():
         # 确保固定会话存在
         _ensure_proactive_session(conn)
         _ensure_wechat_session(conn)
+        _ensure_report_inquiry_session(conn)
         
         rows = conn.execute(
             "SELECT id, title, system_prompt, created_at, updated_at, message_count, last_preview "
             "FROM chat_sessions ORDER BY updated_at DESC"
         ).fetchall()
         
-        # 把固定会话移到最前面（微信 → 主动对话 → 其余）
+        # 把固定会话移到最前面（微信 → 主动对话 → 日报追问 → 其余）
         result = []
         proactive_session = None
         wechat_session = None
+        report_inquiry_session = None
         for r in rows:
             d = dict(r)
             if d["id"] == PROACTIVE_SESSION_ID:
@@ -80,10 +87,15 @@ def list_sessions():
             elif d["id"] == WECHAT_SESSION_ID:
                 d["is_wechat"] = True
                 wechat_session = d
+            elif d["id"] == REPORT_INQUIRY_SESSION_ID:
+                d["is_report_inquiry"] = True
+                report_inquiry_session = d
             else:
                 result.append(d)
         
-        # 固定会话置顶：主动对话 → 微信对话 → 普通对话
+        # 固定会话置顶：主动对话 → 微信对话 → 日报追问 → 普通对话
+        if report_inquiry_session:
+            result.insert(0, report_inquiry_session)
         if wechat_session:
             result.insert(0, wechat_session)
         if proactive_session:
@@ -122,6 +134,20 @@ def _ensure_wechat_session(conn: sqlite3.Connection):
         conn.commit()
 
 
+def _ensure_report_inquiry_session(conn: sqlite3.Connection):
+    """确保日报追问会话存在"""
+    row = conn.execute(
+        "SELECT id FROM chat_sessions WHERE id=?", (REPORT_INQUIRY_SESSION_ID,)
+    ).fetchone()
+    if not row:
+        now = datetime.now().isoformat()
+        conn.execute(
+            "INSERT INTO chat_sessions (id, title, created_at, updated_at) VALUES (?,?,?,?)",
+            (REPORT_INQUIRY_SESSION_ID, REPORT_INQUIRY_SESSION_TITLE, now, now)
+        )
+        conn.commit()
+
+
 @router.post("/sessions", status_code=201)
 def create_session(req: CreateSessionReq):
     """新建会话"""
@@ -146,6 +172,9 @@ def update_session(session_id: str, req: UpdateSessionReq):
     # 主动对话会话不允许修改标题
     if session_id == PROACTIVE_SESSION_ID and req.title is not None:
         raise HTTPException(status_code=403, detail="主动对话会话不可重命名")
+    # 日报追问会话不允许修改标题
+    if session_id == REPORT_INQUIRY_SESSION_ID and req.title is not None:
+        raise HTTPException(status_code=403, detail="日报追问会话不可重命名")
     
     conn = _get_db()
     try:
@@ -178,6 +207,8 @@ def delete_session(session_id: str):
         raise HTTPException(status_code=403, detail="主动对话会话不可删除")
     if session_id == WECHAT_SESSION_ID:
         raise HTTPException(status_code=403, detail="微信对话会话不可删除")
+    if session_id == REPORT_INQUIRY_SESSION_ID:
+        raise HTTPException(status_code=403, detail="日报追问会话不可删除")
     
     conn = _get_db()
     try:
@@ -199,9 +230,13 @@ def get_messages(session_id: str, limit: int = 100, offset: int = 0):
         row = conn.execute("SELECT id FROM chat_sessions WHERE id=?", (session_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="会话不存在")
+        # 取最新的 limit 条（按 id DESC + LIMIT），再按时间升序返回给前端渲染。
+        # 避免 ORDER BY ASC + LIMIT 时新消息被截断在最后看不到。
         rows = conn.execute(
-            "SELECT id, role, content, tool_name, images, created_at FROM chat_messages "
-            "WHERE session_id=? ORDER BY id ASC LIMIT ? OFFSET ?",
+            "SELECT id, role, content, tool_name, images, created_at FROM ("
+            "  SELECT id, role, content, tool_name, images, created_at FROM chat_messages "
+            "  WHERE session_id=? ORDER BY id DESC LIMIT ? OFFSET ?"
+            ") ORDER BY id ASC",
             (session_id, limit, offset)
         ).fetchall()
         result = []

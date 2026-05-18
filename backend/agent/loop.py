@@ -46,19 +46,29 @@ if TYPE_CHECKING:
     from cron.service import CronService
 
 
-# 反思阶段硬上限兜底：无论动态条件是否触发，到达这一轮一定反思一次。
-# 动态触发条件在 Scratchpad.should_reflect() 里（连续同工具/失败/打转）。
+# 反思阶段的周期性节拍：iteration 每走过这个步长就强制反思一次。
+# 用途：在 max_iterations 被设为 None（不限制）时，作为周期性自检，
+# 避免 Agent 在无限循环里无声无息地跑飞。
+# 动态触发条件在 Scratchpad.should_reflect() 里：
+#   - 连续 N 次完全相同的调用（工具名+参数都相同）
+#   - 连续 N 次同一工具且其中至少 1 次失败
+#   - 连续 M 次工具失败
+#   - observation 原地打转
+# （依次 read_file 多个不同文件、全部成功 — 不会触发）
 _REFLECT_HARD_CAP: int = 30
 
 _REFLECT_PROMPT = (
-    "（系统提示：你已经调用了 {iteration} 次工具。\n"
+    "（系统提示：你已经调用了 {iteration} 次工具，暂停一下自检。\n"
     "反思触发原因：{reason}\n\n"
-    "请简短自评当前进展：\n"
-    "1. 当前目标：\n"
-    "2. 已完成的步骤：\n"
-    "3. 下一步计划：\n"
-    "如果已经有足够信息直接回复用户，就立即回复，不要再调用工具；"
-    "如果之前的方向走偏了，请承认并调整策略。）"
+    "请极简自评（每条一句话）：\n"
+    "1. 任务的真正目标：\n"
+    "2. 已经完成的步骤：\n"
+    "3. 还差什么、下一步怎么做：\n\n"
+    "⚠ 重要：\n"
+    "- 反思的目的是调整策略，不是结束任务。\n"
+    "- 自评完成后请**继续调用工具**把任务做完。\n"
+    "- 只有任务全部完成、且用户明确问题已被解决时，才输出无工具调用的最终回复。\n"
+    "- 如果之前的方向走偏了，承认并换策略；如果是临时报错，换个工具或换个姿势重试。）"
 )
 
 
@@ -82,7 +92,7 @@ class AgentLoop:
         provider: LLMProvider,
         workspace: Path,
         model: str | None = None,
-        max_iterations: int = 40,
+        max_iterations: int | None = None,
         context_window_tokens: int = AGENT_CONTEXT_WINDOW_TOKENS,
         web_search_config: WebSearchConfig | None = None,
         web_proxy: str | None = None,
@@ -239,7 +249,7 @@ class AgentLoop:
             session_type: "chat" | "task" | "proactive" | "system"
                 Controls which tools are exposed to the LLM.
         """
-        from agent.scratchpad import Scratchpad, ScratchEntry, summarize_args
+        from agent.scratchpad import Scratchpad, ScratchEntry, summarize_args, make_call_sig
 
         messages = initial_messages
         iteration = 0
@@ -254,22 +264,25 @@ class AgentLoop:
         _last_reflect_reason: str = ""
         _REFLECT_COOLDOWN: int = 5  # 两次反思之间至少隔 5 轮
 
-        while iteration < self.max_iterations:
+        while self.max_iterations is None or iteration < self.max_iterations:
             iteration += 1
 
-            # ── 反思阶段：动态触发 + 硬上限兜底 ──────────────────────────────
+            # ── 反思阶段：动态触发 + 周期性兜底 ──────────────────────────────
             # 动态条件（Scratchpad.should_reflect）：
-            #   连续同名工具 / 连续失败 / observation 打转
-            # 硬上限兜底（iteration == _REFLECT_HARD_CAP）：
-            #   即使没有动态信号，也强制反思一次
+            #   完全相同的调用连刷 / 同工具且有失败 / 连续失败 / observation 打转
+            # 注意：连续 N 次同一工具但"参数不同且全部成功"是合理的 ReAct 探索，
+            #       不会触发反思（例如依次 read_file 多个不同文件）
+            # 周期性兜底：每经过 _REFLECT_HARD_CAP 轮强制自检一次
+            #   （max_iterations 被设为 None 时尤其重要，防止 Agent 跑飞）
             _reflect_reason: str | None = None
             if iteration - _last_reflect_iter >= _REFLECT_COOLDOWN:
                 _reflect_reason = scratch.should_reflect()
                 if (
                     _reflect_reason is None
-                    and iteration == _REFLECT_HARD_CAP
+                    and iteration > 0
+                    and iteration % _REFLECT_HARD_CAP == 0
                 ):
-                    _reflect_reason = f"已达反思硬上限 {_REFLECT_HARD_CAP} 轮"
+                    _reflect_reason = f"周期性自检（每 {_REFLECT_HARD_CAP} 轮）"
 
             if _reflect_reason:
                 _last_reflect_iter = iteration
@@ -298,11 +311,10 @@ class AgentLoop:
                             _reflect_reason,
                             _reflect_text[:120],
                         )
-                        # 如果反思阶段 LLM 直接给出了最终答案（不再调用工具），
-                        # finish_reason 不是 tool_calls 且内容有效，则直接采纳
-                        if _reflect_resp.finish_reason != "tool_calls" and _reflect_text:
-                            final_content = _reflect_text
-                            break
+                        # 反思阶段只把自评内容写回 messages，然后回到主循环。
+                        # 不在这里提前结束 —— 反思的目的是"调整策略后继续"，
+                        # 而不是"自评完收工"。下一轮主调用会带着反思上下文 + 工具列表
+                        # 自然决定：若还需要工具就继续调，若信息已够就输出最终答案。
                 except Exception:
                     logger.warning("ReAct reflection failed at iter {} (non-fatal)", iteration)
 
@@ -416,6 +428,7 @@ class AgentLoop:
                         observation=str(result)[:120],
                         success=_tool_ok,
                         tool_name=tool_call.name,
+                        call_sig=make_call_sig(tool_call.name, tool_call.arguments),
                     ))
 
                     messages = self.context.add_tool_result(
@@ -423,12 +436,22 @@ class AgentLoop:
                     )
             else:
                 clean = self._strip_think(response.content)
+                # 诊断日志：把 LLM 退出循环前的状态完整记下来，便于排查"莫名其妙结束"
+                logger.info(
+                    "iter {}: no tool_calls, finish_reason={!r}, content_len={}, preview={!r}",
+                    iteration,
+                    response.finish_reason,
+                    len(clean or ""),
+                    (clean or "")[:200],
+                )
+
                 # Don't persist error responses to session history — they can
                 # poison the context and cause permanent 400 loops (#1303).
                 if response.finish_reason == "error":
                     logger.error("LLM returned error: {}", (clean or "")[:200])
                     final_content = clean or "Sorry, I encountered an error calling the AI model."
                     break
+
                 messages = self.context.add_assistant_message(
                     messages, clean, reasoning_content=response.reasoning_content,
                     thinking_blocks=response.thinking_blocks,
@@ -436,9 +459,15 @@ class AgentLoop:
                 final_content = clean
                 break
 
-        if final_content is None and iteration >= self.max_iterations:
-            logger.warning("Max iterations (%d) reached, falling back to summary",
-                           self.max_iterations)
+        if (
+            final_content is None
+            and self.max_iterations is not None
+            and iteration >= self.max_iterations
+        ):
+            logger.warning(
+                "Max iterations ({}) reached, falling back to summary",
+                self.max_iterations,
+            )
             fallback_messages = messages + [{
                 "role": "user",
                 "content": (
@@ -543,12 +572,9 @@ class AgentLoop:
         except Exception as e:
             logger.warning("Cron job '{}' DB persist failed: {}", job.name, e)
 
-        # ── 2. 从消息内容提取情绪标签（如果 LLM 生成的 cron 内容带了 [EMOTION:xxx]）
-        import re as _re
-        _emotion_match = _re.search(r'\[EMOTION:(\w+)\]', content, _re.IGNORECASE)
-        emotion = _emotion_match.group(1).lower() if _emotion_match else None
-        # 清理内容中的情绪标签
-        content = _re.sub(r'\s*\[EMOTION:\w+\]', '', content, flags=_re.IGNORECASE).strip()
+        # ── 2. 从消息内容提取情绪标签（兼容 `[EMOTION: xxx]` 带空格变体）──
+        from utils.helpers import parse_emotion_tag
+        emotion, content = parse_emotion_tag(content)
 
         # ── 3. broadcaster 广播 type="reply"（Live2D 和 ChatPage 都能处理）──
         #    broadcaster 广播全量内容，不走流式协议

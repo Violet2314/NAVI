@@ -331,6 +331,14 @@ def submit_learning_answer(payload: dict):
 
     logger.info(f"用户已回答今日追问: {answer[:50]}")
 
+    # 把用户的回答 + 后续系统回执写进 __report_inquiry__ 会话，保证对话闭环。
+    try:
+        from api.chat_routes import save_message, ensure_session, REPORT_INQUIRY_SESSION_ID, REPORT_INQUIRY_SESSION_TITLE
+        ensure_session(REPORT_INQUIRY_SESSION_ID, title=REPORT_INQUIRY_SESSION_TITLE)
+        save_message(REPORT_INQUIRY_SESSION_ID, "user", answer)
+    except Exception as e:
+        logger.warning(f"写入 __report_inquiry__ 用户消息失败（不影响主流程）: {e}")
+
     # 2. 立即生成日报，把 answer 当作 learning_summary 注入
     filepath = generate_daily_report(
         target_date,
@@ -339,10 +347,27 @@ def submit_learning_answer(payload: dict):
     )
 
     if not filepath:
+        # 生成失败也在会话里留个痕
+        try:
+            from api.chat_routes import save_message, REPORT_INQUIRY_SESSION_ID
+            save_message(REPORT_INQUIRY_SESSION_ID, "assistant",
+                         "呜呜，日报生成出了点问题，稍后我再试一次~")
+        except Exception:
+            pass
         return JSONResponse(status_code=500, content={
             "status": "error",
             "message": "日报生成失败，请查看后端控制台日志"
         })
+
+    # 成功后往会话里补一条反馈，让用户看到闭环
+    try:
+        from api.chat_routes import save_message, REPORT_INQUIRY_SESSION_ID
+        save_message(
+            REPORT_INQUIRY_SESSION_ID, "assistant",
+            f"收到啦~ 我把今天的日报写好了，已经放在 Obsidian 里了 📝\n{filepath}"
+        )
+    except Exception as e:
+        logger.warning(f"写入 __report_inquiry__ 完成消息失败: {e}")
 
     return {
         "status": "done",

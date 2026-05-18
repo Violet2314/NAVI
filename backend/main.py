@@ -161,7 +161,7 @@ async def lifespan(app: FastAPI):
             bus=_bus,
             provider=_provider,  # type: ignore[arg-type]
             workspace=Path(__file__).parent,
-            max_iterations=20,
+            max_iterations=None,  # 不限制轮数；依赖 Scratchpad 反思 + 周期性自检兜底
             cron_service=_cron_service,
         )
         

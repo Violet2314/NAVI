@@ -365,20 +365,40 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
             return text
 
         images = []
-        for path in media:
-            p = Path(path)
+        for item in media:
+            if not item:
+                continue
+            s = str(item).strip()
+
+            # Case 1: 已经是 data URL（前端直接上传的 base64）
+            if s.startswith("data:image/"):
+                images.append({
+                    "type": "image_url",
+                    "image_url": {"url": s},
+                })
+                continue
+
+            # Case 2: 远程图片 URL
+            if s.startswith("http://") or s.startswith("https://"):
+                images.append({
+                    "type": "image_url",
+                    "image_url": {"url": s},
+                })
+                continue
+
+            # Case 3: 本地文件路径 → 读取并 base64 编码
+            p = Path(s)
             if not p.is_file():
                 continue
             raw = p.read_bytes()
             # Detect real MIME type from magic bytes; fallback to filename guess
-            mime = detect_image_mime(raw) or mimetypes.guess_type(path)[0]
+            mime = detect_image_mime(raw) or mimetypes.guess_type(s)[0]
             if not mime or not mime.startswith("image/"):
                 continue
             b64 = base64.b64encode(raw).decode()
             images.append({
                 "type": "image_url",
                 "image_url": {"url": f"data:{mime};base64,{b64}"},
-                "_meta": {"path": str(p)},
             })
 
         if not images:

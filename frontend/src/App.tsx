@@ -13,7 +13,7 @@ import {
   RobotOutlined, LockOutlined, ExperimentOutlined, SettingOutlined,
   SoundOutlined, SunOutlined, MoonOutlined, MenuFoldOutlined,
   MenuUnfoldOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
-  BulbOutlined, WechatOutlined, ThunderboltOutlined,
+  BulbOutlined, WechatOutlined, ThunderboltOutlined, BookOutlined,
 } from "@ant-design/icons";
 
 // ── Utils ──
@@ -89,7 +89,7 @@ export default function App() {
   }, [tab, refreshActivities]);
 
   // ── 会话列表状态 ──
-  const [sessions, setSessions] = useState<{id:string;title:string;last_preview:string|null;is_proactive?:boolean;is_wechat?:boolean}[]>([]);
+  const [sessions, setSessions] = useState<{id:string;title:string;last_preview:string|null;is_proactive?:boolean;is_wechat?:boolean;is_report_inquiry?:boolean}[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editSessionTitle, setEditSessionTitle] = useState("");
@@ -204,7 +204,7 @@ export default function App() {
                   {sessions.map(s => (
                     <div
                       key={s.id}
-                      className={`nav-session-item${s.id === activeChatId ? " active" : ""}${s.is_proactive ? " proactive" : ""}${s.is_wechat ? " wechat" : ""}`}
+                      className={`nav-session-item${s.id === activeChatId ? " active" : ""}${s.is_proactive ? " proactive" : ""}${s.is_wechat ? " wechat" : ""}${s.is_report_inquiry ? " report-inquiry" : ""}`}
                       onClick={() => setActiveChatId(s.id)}
                     >
                       {s.is_proactive ? (
@@ -217,6 +217,12 @@ export default function App() {
                         /* 微信对话：固定样式，不可编辑/删除 */
                         <>
                           <WechatOutlined style={{ fontSize: 12, color: "#07c160", marginRight: 6, flexShrink: 0 }} />
+                          <span className="nav-session-title">{s.title}</span>
+                        </>
+                      ) : s.is_report_inquiry ? (
+                        /* 日报追问：固定样式，不可编辑/删除 */
+                        <>
+                          <BookOutlined style={{ fontSize: 12, color: "#d97706", marginRight: 6, flexShrink: 0 }} />
                           <span className="nav-session-title">{s.title}</span>
                         </>
                       ) : editingSessionId === s.id ? (

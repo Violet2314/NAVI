@@ -224,10 +224,9 @@ class LocalWSChannel:
                     # 流式推送文字内容
                     tool_content = "\n".join(_tool_sent_content).strip()
                     if tool_content:
-                        # 解析情绪标签
-                        _em_match = re.search(r'\[EMOTION:(\w+)\]', tool_content, re.IGNORECASE)
-                        _em_tag = _em_match.group(1).lower() if _em_match else None
-                        _clean = re.sub(r'\s*\[EMOTION:\w+\]', '', tool_content, flags=re.IGNORECASE).strip()
+                        # 解析情绪标签（兼容 `[EMOTION: xxx]` 带空格的变体）
+                        from utils.helpers import parse_emotion_tag
+                        _em_tag, _clean = parse_emotion_tag(tool_content)
                         if _em_tag:
                             logger.info(f"[WS] 解析到情绪标签(message tool): {_em_tag}")
                         # 持久化消息（存文件名而非绝对路径）
@@ -278,12 +277,10 @@ class LocalWSChannel:
                         logger.info(f"[WS] 推送 {len(image_urls)} 张图片给前端: {image_urls}")
                     continue  # message 工具已处理完，跳过后面的流式推送
 
-                # ── 解析 LLM 结构化情绪标签 [EMOTION:xxx] ──────────────────
+                # ── 解析 LLM 结构化情绪标签 [EMOTION:xxx]（兼容带空格变体）────
                 raw_content = response.content if response else ""
-                emotion_match = re.search(r'\[EMOTION:(\w+)\]', raw_content, re.IGNORECASE)
-                emotion_tag = emotion_match.group(1).lower() if emotion_match else None
-                # 去掉标签，保持正文干净
-                clean_content = re.sub(r'\s*\[EMOTION:\w+\]', '', raw_content, flags=re.IGNORECASE).strip()
+                from utils.helpers import parse_emotion_tag
+                emotion_tag, clean_content = parse_emotion_tag(raw_content)
                 if emotion_tag:
                     logger.info(f"[WS] 解析到情绪标签: {emotion_tag}")
 

@@ -37,27 +37,10 @@ class ToolRegistry:
 
     def get_definitions_for_session(self, session_type: str = "chat") -> list[dict[str, Any]]:
         """
-        Get tool definitions filtered by session type.
-
-        Session types:
-          - "chat":      message, save_memory, search_memory, read_file (轻量对话)
-          - "task":      all tools (复杂任务)
-          - "proactive": message only (主动推送)
-          - "system":    all tools (系统消息/子 agent 结果)
+        Get tool definitions (session_type kept for backward compat, but all
+        sessions now get the full tool list — no artificial restriction).
         """
-        if session_type == "chat":
-            allowed = {"message", "save_memory", "search_memory", "read_file"}
-        elif session_type == "proactive":
-            allowed = {"message"}
-        else:
-            # task / system / unknown → all tools
-            return self.get_definitions()
-
-        return [
-            tool.to_schema()
-            for name, tool in self._tools.items()
-            if name in allowed
-        ]
+        return self.get_definitions()
 
     async def execute(self, name: str, params: dict[str, Any]) -> str:
         """Execute a tool by name with given parameters."""

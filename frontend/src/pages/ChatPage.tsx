@@ -51,6 +51,7 @@ function StreamCursor() {
 }
 
 const WECHAT_SESSION_ID = "__wechat__";
+const REPORT_INQUIRY_SESSION_ID = "__report_inquiry__";
 
 // ── 微信状态条 ───────────────────────────────────────────────────────────────
 function WeChatStatusBar() {
@@ -207,9 +208,17 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const streamBufRef = useRef<string>("");
   const streamingIdRef = useRef<string | null>(null);  // ref 版本，供闭包使用
+  // 微信会话：被 ws.onmessage 复用的"按 session 重新拉历史"函数，
+  // 通过 ref 传入避免闭包捕获过期的 sessionId。
+  const reloadWechatHistoryRef = useRef<(() => void) | null>(null);
+  // msgs 的实时镜像，让 reload 计算"新增气泡"时能拿到最新值，
+  // 而不必把 setTimeout 写在 setMsgs 回调里（React 反模式 + StrictMode 会双跑）。
+  const msgsRef = useRef<ChatMsg[]>([]);
 
   // 同步 streamingId 到 ref
   useEffect(() => { streamingIdRef.current = streamingId; }, [streamingId]);
+  // 实时同步 msgs 到 ref，供 reloadWechatHistory 比较"新增气泡"用
+  useEffect(() => { msgsRef.current = msgs; }, [msgs]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -225,6 +234,13 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     ws.onmessage = (e) => {
       const data = JSON.parse(e.data);
       const ts = nowTime();
+      if (data.type === "wechat_message") {
+        // 微信侧有新消息（用户发来 / Bot 回复 / 主动对话），
+        // 当前在 __wechat__ 会话时重新从 DB 拉取以保证一致性。
+        // 注意：不要把同一条消息再当作 reply 渲染，否则会出现拼接重复气泡。
+        if (sid === WECHAT_SESSION_ID) reloadWechatHistoryRef.current?.();
+        return;
+      }
       if (data.type === "thinking") {
         setThinking(true);
       } else if (data.type === "tool_hint" || data.type === "progress") {
@@ -292,6 +308,10 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
         // cron / proactive 全量消息：broadcaster 广播，按 chat_id 过滤后插入
         // data.chat_id 存在时只处理属于当前 session 的消息
         if (data.chat_id && data.chat_id !== sessionId) return;
+        // 微信渠道的 reply 仅供 Live2D / TTS 同步使用，
+        // 聊天气泡已经由 wechat_message → reloadWechatHistory 渲染（带 [SPLIT] 拆分）。
+        // 这里若再渲染会出现一条「全部拼接」的重复气泡，所以直接忽略。
+        if (data.source === "wechat" || data.source === "wechat_proactive") return;
         setThinking(false);
         const rawParts = (data.content || "")
           .split("[SPLIT]").map((s: string) => s.trim()).filter(Boolean);
@@ -309,21 +329,28 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
           }).catch(() => {});
         }
       } else if (data.type === "navi:report_inquiry") {
-        // 【P0-2】日报追问推送：把问题插入当前 ChatPage 作为 Navi 的提问，并设置 pendingLearningDate
-        // 用户的下一条消息会被拦截，转走 /api/report/learning_answer
+        // 【P0-2】日报追问推送：追问已被后端持久化到 __report_inquiry__ 会话，
+        // 所以这里只在"用户正好在日报追问会话"时实时追加一条气泡；
+        // 其他会话只触发 Live2D 表情，不污染当前对话。切到追问会话时会从 DB 拉到。
         const ldate = data.date || new Date().toISOString().slice(0, 10);
         setPendingLearningDate(ldate);
         setThinking(false);
-        const intro = data.time_range && data.app_summary
-          ? `（关于 ${data.time_range} 那段在 ${data.app_summary}）`
-          : "";
-        const msg = `${data.question || "今天有一段时间想问问你具体在做什么呢~"}${intro ? "\n" + intro : ""}`;
-        setMsgs(m => [...m, { id: msgId(), role: "assistant", content: msg, ts }]);
+        if (sid === REPORT_INQUIRY_SESSION_ID) {
+          const intro = data.time_range && data.app_summary
+            ? `（关于 ${data.time_range} 那段在 ${data.app_summary}）`
+            : "";
+          const msg = `${data.question || "今天有一段时间想问问你具体在做什么呢~"}${intro ? "\n" + intro : ""}`;
+          setMsgs(m => [...m, { id: msgId(), role: "assistant", content: msg, ts }]);
+        }
         // Live2D 表情切到 curious
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         import("@tauri-apps/api/event" as any).then(({ emitTo }: any) => {
           emitTo("live2d-companion", "live2d:emotion_change", { emotion: "curious" }).catch(() => {});
         }).catch(() => {});
+      } else if (data.type === "navi:report_done") {
+        // 日报生成完成：如果正在日报追问会话，清掉 pendingLearningDate
+        // 气泡本身已由后端写入 __report_inquiry__ 会话的 DB，这里不再重复插入
+        setPendingLearningDate(null);
       } else if (data.type === "reply_images" && data.images?.length) {
         // 后端截图等附图，追加到最后一条 assistant 消息上
         // 拼接后端 base URL（后端发来 /media/filename）
@@ -372,6 +399,7 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
       return;
     }
     setMsgs([]); setThinking(false); setStreamingId(null);
+    const isWechatSid = sessionId === WECHAT_SESSION_ID;
     fetch(`${API}/api/chat/sessions/${sessionId}/messages?limit=100`)
       .then(r => r.json())
       .then((data: {role: string; content: string; created_at: string; images?: string[]}[]) => {
@@ -386,13 +414,16 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
             const parts = m.content.split("[SPLIT]").map(s => s.trim()).filter(Boolean);
             parts.forEach((part, i) => {
               // 图片只挂在最后一条拆分消息上
-              expanded.push({ id: msgId(), role: "assistant", content: part, ts,
+              // 微信会话用稳定 id（基于 created_at + index），让 reload 时差量比较生效，避免闪烁
+              expanded.push({
+                id: isWechatSid ? `${m.created_at}#${i}` : msgId(),
+                role: "assistant", content: part, ts,
                 ...(i === parts.length - 1 && images ? { images } : {}),
               });
             });
           } else {
             expanded.push({
-              id: msgId(),
+              id: isWechatSid ? `${m.created_at}#0` : msgId(),
               role: (m.role === "assistant" ? "assistant" : m.role) as MsgRole,
               content: m.content,
               ts,
@@ -435,11 +466,27 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
     const btn = document.querySelector<HTMLElement>(".chat-send-btn");
     if (btn) gsap.fromTo(btn, { scale: 0.88 }, { scale: 1, duration: 0.25, ease: "back.out(2)" });
 
-    // ── 学习回答拦截：有待答学习问题时，走 learning_answer 接口 ──
-    if (pendingLearningDate && text) {
+    // ── 日报追问会话：用户的回答走 /api/report/learning_answer 接口，不走 WS agent loop ──
+    // 兼容旧逻辑：如果在其它会话里通过 pendingLearningDate 兜底进入追问也一样处理
+    const inReportInquirySession = sessionId === REPORT_INQUIRY_SESSION_ID;
+    if (inReportInquirySession || pendingLearningDate) {
+      if (!text) {
+        // 在追问会话里只支持文字回答，避免把图片发进 agent loop 造成语义混乱
+        if (pendingImages.length > 0) {
+          setMsgs(m => [...m, {
+            id: msgId(), role: "assistant",
+            content: "日报追问目前只支持文字回答哦，简单说几句就好~",
+            ts: nowTime(),
+          }]);
+          setPendingImages([]);
+        }
+        return;
+      }
+      // 先在前端乐观渲染一条用户气泡（后端 learning_answer 也会 save_message 一次，
+      // 但那是持久化用的，不会立刻推回前端；下次切会话会从 DB 拉）
       setMsgs(m => [...m, { id: msgId(), role: "user", content: text, ts: nowTime() }]);
       setInput("");
-      const learningDate = pendingLearningDate;
+      const learningDate = pendingLearningDate || new Date().toISOString().slice(0, 10);
       setPendingLearningDate(null);
 
       fetch(`${API}/api/report/learning_answer`, {
@@ -485,46 +532,82 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
 
   const isWechat = sessionId === WECHAT_SESSION_ID;
 
-  // 微信会话：WS 收到 wechat_message 时重新从 DB 拉取（避免和初始加载重复）
+  // 微信会话：把"按 sessionId 重新拉历史 + 差量更新 + 新增气泡逐条冒"函数挂到 ref，
+  // 让 connectWS 的 ws.onmessage 闭包通过 ref 调用，避免 sessionId 过期，
+  // 也避免每次重连都 monkey-patch ws.onmessage 导致重复触发 / 闪烁。
   useEffect(() => {
-    if (!isWechat || !wsRef.current) return;
-    const ws = wsRef.current;
-    const originalOnMessage = ws.onmessage;
-    ws.onmessage = (e) => {
-      if (originalOnMessage) (originalOnMessage as (ev: MessageEvent) => void)(e);
-      try {
-        const data = JSON.parse(e.data);
-        if (data.type === "wechat_message" && sessionId) {
-          // 重新 fetch DB，避免和初始加载的消息重复
-          fetch(`${API}/api/chat/sessions/${sessionId}/messages?limit=100`)
-            .then(r => r.json())
-            .then((rows: {role: string; content: string; created_at: string; images?: string[]}[]) => {
-              const expanded: ChatMsg[] = [];
-              rows.forEach(m => {
-                const ts = new Date(m.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-                const images = m.images?.length
-                  ? m.images.map(src => src.startsWith("http") ? src : `${API}${src}`)
-                  : undefined;
-                if (m.role === "assistant" && m.content.includes("[SPLIT]")) {
-                  m.content.split("[SPLIT]").map(s => s.trim()).filter(Boolean).forEach((part, i, arr) => {
-                    expanded.push({ id: msgId(), role: "assistant", content: part, ts,
-                      ...(i === arr.length - 1 && images ? { images } : {}),
-                    });
-                  });
-                } else {
-                  expanded.push({ id: msgId(), role: m.role as MsgRole, content: m.content, ts,
-                    ...(images ? { images } : {}),
-                  });
-                }
+    if (!isWechat || !sessionId) {
+      reloadWechatHistoryRef.current = null;
+      return;
+    }
+    // 逐条冒泡的间隔（毫秒），跟手机微信节奏对齐
+    const TYPING_INTERVAL = 600;
+    reloadWechatHistoryRef.current = () => {
+      fetch(`${API}/api/chat/sessions/${sessionId}/messages?limit=100`)
+        .then(r => r.json())
+        .then((rows: {role: string; content: string; created_at: string; images?: string[]}[]) => {
+          if (!Array.isArray(rows)) return;
+          const expanded: ChatMsg[] = [];
+          rows.forEach(m => {
+            const ts = new Date(m.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+            const images = m.images?.length
+              ? m.images.map(src => src.startsWith("http") ? src : `${API}${src}`)
+              : undefined;
+            if (m.role === "assistant" && m.content.includes("[SPLIT]")) {
+              m.content.split("[SPLIT]").map(s => s.trim()).filter(Boolean).forEach((part, i, arr) => {
+                expanded.push({
+                  // 稳定 id：基于 created_at + index，让差量比较跨 reload 生效
+                  id: `${m.created_at}#${i}`,
+                  role: "assistant", content: part, ts,
+                  ...(i === arr.length - 1 && images ? { images } : {}),
+                });
               });
-              setMsgs(expanded);
-            })
-            .catch(() => {});
-        }
-      } catch { /* ignore */ }
+            } else {
+              expanded.push({
+                id: `${m.created_at}#0`,
+                role: m.role as MsgRole, content: m.content, ts,
+                ...(images ? { images } : {}),
+              });
+            }
+          });
+
+          // 1) 用当前真实 msgs 计算"新增"，避免在 setMsgs 回调里写副作用
+          const currentMsgs = msgsRef.current;
+          if (currentMsgs.length === expanded.length
+            && currentMsgs.every((p, i) => p.id === expanded[i].id && p.content === expanded[i].content)) {
+            return; // 完全一致，直接跳过
+          }
+          const existingIds = new Set(currentMsgs.map(p => p.id));
+          const stillExisting = expanded.filter(e => existingIds.has(e.id));
+          const newOnes = expanded.filter(e => !existingIds.has(e.id));
+          const instantNew = newOnes.filter(e => e.role !== "assistant");
+          const typingNew = newOnes.filter(e => e.role === "assistant");
+
+          console.log("[wechat reload] existing=%d, instantNew=%d, typingNew=%d",
+            stillExisting.length, instantNew.length, typingNew.length);
+
+          // 2) 首帧：已有 + 新用户消息 + 第一条新 assistant
+          const firstFrame: ChatMsg[] = [...stillExisting, ...instantNew];
+          if (typingNew.length > 0) firstFrame.push(typingNew[0]);
+          setMsgs(firstFrame);
+
+          // 3) 剩余 assistant 气泡：在 setMsgs 之外、用真正的 setTimeout 排队逐条追加
+          typingNew.slice(1).forEach((bubble, idx) => {
+            const delay = (idx + 1) * TYPING_INTERVAL;
+            setTimeout(() => {
+              setMsgs(cur => {
+                if (cur.some(c => c.id === bubble.id)) return cur;
+                return [...cur, bubble];
+              });
+            }, delay);
+            console.log("[wechat typing] queued bubble #%d in %dms: %s", idx + 1, delay, bubble.content.slice(0, 20));
+          });
+        })
+        .catch(() => {});
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWechat, connected]);
+  }, [isWechat, sessionId]);
+
+
 
   // ── 渲染 ──────────────────────────────────────────────────────────────────
   return (
@@ -603,8 +686,10 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
       {/* 输入区（微信会话只读，不显示输入框） */}
       {sessionId && !isWechat && (
         <div className="chat-input-area">
-          {/* 学习问题待答提示条 */}
-          {pendingLearningDate && (
+          {/* 学习问题待答提示条：
+              - 在日报追问会话里：常驻提示"这里的回答会直接生成日报"
+              - 在其它会话但 pendingLearningDate 存在（旧逻辑兜底）：提示用户可以直接答 */}
+          {(sessionId === REPORT_INQUIRY_SESSION_ID || pendingLearningDate) && (
             <div style={{
               display: "flex", alignItems: "center", gap: 8,
               padding: "6px 14px", margin: "0 0 6px 0",
@@ -612,17 +697,22 @@ export function ChatPage({ sessionId }: { sessionId: string | null }) {
               border: "1px solid rgba(var(--primary-rgb, 99,102,241), 0.25)",
               borderRadius: 10, fontSize: 12, color: "var(--text-sub)",
             }}>
-              <span style={{ fontSize: 15 }}>📚</span>
-              <span>正在回答学习问题，发送后日报将自动生成</span>
-              <button
-                onClick={() => setPendingLearningDate(null)}
-                style={{
-                  marginLeft: "auto", fontSize: 11, padding: "1px 8px",
-                  borderRadius: 6, border: "1px solid var(--border)",
-                  background: "transparent", color: "var(--text-muted)",
-                  cursor: "pointer",
-                }}
-              >跳过</button>
+              <span>
+                {sessionId === REPORT_INQUIRY_SESSION_ID
+                  ? "在这里回答 Navi 的追问，发送后会立刻生成今天的日报"
+                  : "正在回答学习问题，发送后日报将自动生成"}
+              </span>
+              {sessionId !== REPORT_INQUIRY_SESSION_ID && (
+                <button
+                  onClick={() => setPendingLearningDate(null)}
+                  style={{
+                    marginLeft: "auto", fontSize: 11, padding: "1px 8px",
+                    borderRadius: 6, border: "1px solid var(--border)",
+                    background: "transparent", color: "var(--text-muted)",
+                    cursor: "pointer",
+                  }}
+                >跳过</button>
+              )}
             </div>
           )}
           <div className="chat-input-box">

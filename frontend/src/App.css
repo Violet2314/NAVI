@@ -783,6 +783,19 @@ textarea {
   background: linear-gradient(90deg, rgba(7, 193, 96, 0.18), var(--primary-light));
 }
 
+/* 日报追问项特殊样式（橙色系，呼应 StatusTab ReportCard 的 "等你回答中" 配色） */
+.nav-session-item.report-inquiry {
+  background: linear-gradient(90deg, rgba(217, 119, 6, 0.08), transparent);
+  border-left: 2px solid #d97706;
+  padding-left: 6px;
+}
+.nav-session-item.report-inquiry:hover {
+  background: linear-gradient(90deg, rgba(217, 119, 6, 0.15), var(--bg-hover));
+}
+.nav-session-item.report-inquiry.active {
+  background: linear-gradient(90deg, rgba(217, 119, 6, 0.18), var(--primary-light));
+}
+
 .nav-session-actions {
   display: flex;
   gap: 4px;
