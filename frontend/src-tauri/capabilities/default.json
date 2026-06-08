@@ -21,18 +21,6 @@
     "core:tray:allow-set-tooltip",
     "core:tray:allow-set-visible",
     "shell:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        { "name": "binaries/navi-backend", "sidecar": true, "args": true }
-      ]
-    },
-    {
-      "identifier": "shell:allow-spawn",
-      "allow": [
-        { "name": "binaries/navi-backend", "sidecar": true, "args": true }
-      ]
-    },
     "shell:allow-stdin-write",
     "shell:allow-kill"
   ]
