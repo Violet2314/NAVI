@@ -47,7 +47,6 @@ logs/
 # ===========================
 frontend/dist/
 frontend/dist-ssr/
-frontend/src-tauri/icons
 
 # ===========================
 # Tauri / Rust
